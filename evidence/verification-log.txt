@@ -1,0 +1,15 @@
+test_clone_source_is_postgres_pvc (test_manifests.TestManifests.test_clone_source_is_postgres_pvc) ... ok
+test_helm_values (test_manifests.TestManifests.test_helm_values) ... ok
+test_kind_config_has_two_workers (test_manifests.TestManifests.test_kind_config_has_two_workers) ... ok
+test_no_real_credentials_committed (test_manifests.TestManifests.test_no_real_credentials_committed) ... ok
+test_pvc (test_manifests.TestManifests.test_pvc) ... ok
+test_snapshot_and_restore_agree (test_manifests.TestManifests.test_snapshot_and_restore_agree) ... ok
+test_snapshotclass_matches_storageclass (test_manifests.TestManifests.test_snapshotclass_matches_storageclass) ... ok
+test_statefulset_uses_pvc (test_manifests.TestManifests.test_statefulset_uses_pvc) ... ok
+test_storageclass (test_manifests.TestManifests.test_storageclass) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.033s
+
+OK
+exit:0
