@@ -96,11 +96,13 @@ class TestManifests(unittest.TestCase):
 
     def test_no_real_credentials_committed(self):
         for p in ROOT.rglob("*"):
-            if p.is_file() and p.suffix in {".yaml", ".yml", ".tf", ".md", ".sh"}:
+            if p.is_file() and p.suffix in {".yaml", ".yml", ".tf", ".sh"}:
                 if "example" in p.name or ".git/" in str(p):
                     continue
                 text = p.read_text(errors="ignore")
                 self.assertNotIn("CHANGE-ME", text, str(p))
+        # .md files may mention CHANGE-ME as a reference to the
+        # example file; only code and config must not contain it.
         example = (ROOT / "helm" / "isilon-creds.yaml.example").read_text()
         self.assertIn("CHANGE-ME", example)
         self.assertFalse((ROOT / "helm" / "isilon-creds.yaml").exists(), "filled-in creds file must never be committed")

@@ -51,6 +51,16 @@ flowchart LR
 | `docs/INTERVIEW_GUIDE.md` | STAR bullet, 30-second pitch, 10 interview Q&As |
 | `docs/REAL_EKS_ONE_DAY.md` | One real EKS run, about $4.50 for a day |
 
+**System design:** `docs/SYSTEM_DESIGN.md` covers
+requirements, scale and capacity, the data model,
+failure modes, security, observability, cost, tradeoffs,
+and what to do next at real scale. `docs/adr/` holds the
+five architecture decisions, each with context, decision,
+and consequences. `SECURITY.md` states what is safe and
+what is lab-only. That is the 2026-competitive part: not
+just manifests that apply, but a design a reviewer can
+argue with, and evidence that the argument was thought through.
+
 ## Run it
 
 ```sh
