@@ -38,6 +38,43 @@ flowchart LR
     OneFS --> NODE --> PG
 ```
 
+## Who built this, and why
+
+Andrew Chan, Technical Support Engineer II at Dell
+Technologies since December 2018, escalation point for
+150+ enterprise Dell PowerScale (OneFS) environments and
+1,400+ high-severity incidents, with 15+ Python, Bash and
+PowerShell automation tools and 20+ runbooks built on the
+job. Certifications held: AWS Solutions Architect
+Professional, CKA, Terraform Associate, RHCE, CCNA.
+
+This project exists because support work alone does not
+prove build skill. It takes the storage a PowerScale TSE
+supports every day, NFS exports, SmartQuotas, snapshots,
+node failures, and puts Kubernetes on top of it with
+Dell's own CSI driver, proven by four drills. Target
+roles: Cloud Support Engineer, Cloud Operations,
+Storage and Platform Engineer.
+
+## What this proves for a cloud role
+
+| PowerScale TSE experience | Cloud proof in this repo |
+|---|---|
+| NFS exports on OneFS | CSI node plugin mounts NFS exports on every worker |
+| SmartQuotas | Driver sets a quota per volume, expansion grows it in place |
+| PowerScale snapshots | CSI VolumeSnapshot, restore PVC, clone PVC |
+| Node failure on a cluster | Node failure drill: pod reschedules, volume follows, data survives |
+| OneFS Platform API | CSI controller creates directories, exports, quotas through the API |
+| CKA, Kubernetes operations | kind cluster, Helm install, StorageClasses, StatefulSet, CI dry-run in a real cluster |
+
+**For hiring managers and interviewers:** start at
+`docs/INTERVIEW_GUIDE.md`. It has the STAR bullet, the
+30-second pitch, and the ten questions you will be asked,
+with answers. CI runs on every push: 9 manifest tests,
+Terraform fmt/validate, Helm template, and a real kind
+cluster where the manifests are applied dry-run, see
+`.github/workflows/ci.yml`.
+
 ## What is in here
 
 | Path | What it is |
