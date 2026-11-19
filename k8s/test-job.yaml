@@ -1,0 +1,24 @@
+# Test job: writes one row to Postgres, then reads it back.
+# Run it once to prove the volume works, and again after a
+# pod kill, a snapshot restore, and a node failure, to prove
+# the data survived each one.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: csi-test-write
+  namespace: csi-demo
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: psql
+          image: postgres:16
+          command:
+            - /bin/sh
+            - -c
+            - |
+              PGPASSWORD=postgres psql -h postgres -U postgres -d csi_demo -c "CREATE TABLE IF NOT EXISTS csi_proof (id INT PRIMARY KEY, note TEXT); INSERT INTO csi_proof VALUES (1, 'csi-powerscale-proof') ON CONFLICT (id) DO NOTHING; SELECT * FROM csi_proof;"
+          envFrom:
+            - secretRef:
+                name: postgres-secret

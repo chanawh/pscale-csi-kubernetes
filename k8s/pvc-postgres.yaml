@@ -1,0 +1,15 @@
+# The claim. 10 GiB, ReadWriteMany, on the powerscale class.
+# Minimum volume size for the driver is 3 GiB, so 10 GiB is safe.
+# This PVC is the whole demo: everything else hangs off it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: csi-demo
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: powerscale
+  resources:
+    requests:
+      storage: 10Gi

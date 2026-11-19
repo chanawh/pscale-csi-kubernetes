@@ -1,0 +1,54 @@
+# Postgres on PowerScale. One replica, because Postgres itself
+# is not clustered here; the point is the storage, not HA Postgres.
+# The volumeMount is /var/lib/postgresql/data, which is the NFS
+# export on OneFS. Kill the pod and the data survives, because
+# the data was never in the pod.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: csi-demo
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: csi-demo
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: postgres-secret
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: csi-demo
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+  clusterIP: None

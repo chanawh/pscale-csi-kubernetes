@@ -1,0 +1,9 @@
+{
+  "project": "pscale-csi-kubernetes",
+  "verified": "2026-11-18",
+  "python_tests": "9/9 pass",
+  "terraform": "fmt clean, validate clean",
+  "helm_template": "dell/csi-isilon 2.18.1 renders 18 objects, csi-isilon.dellemc.com present",
+  "scripts": "bash -n clean",
+  "not_run_live_here": "kind (no Docker in VM), driver install, Postgres, four drills - run on your machine with OneFS Simulator; CI applies manifests dry-run against a real kind API server"
+}

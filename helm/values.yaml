@@ -1,0 +1,51 @@
+# Helm values for dell/csi-isilon 2.18.1, the PowerScale CSI driver.
+# Install with: helm install isilon dell/csi-isilon --version 2.18.1
+#   --namespace csi-isilon --create-namespace -f helm/values.yaml
+#   --set-file isilon-creds-secret... see helm/isilon-creds.yaml.example
+# These are the only values changed from the chart defaults.
+# Everything else is the chart default, so an upgrade does not
+# silently change behaviour.
+#
+# Chart defaults verified live 18 Nov 2026 with
+#   helm show values dell/csi-isilon --version 2.18.1
+# Driver image: quay.io/dell/container-storage-modules/csi-isilon:v2.18.1
+# Sidecars: provisioner v6.3.0, attacher v4.13.0, snapshotter v8.6.0,
+#   resizer v2.2.1, registrar v2.18.0.
+version: "v2.18.1"
+logLevel: "info"
+imagePullPolicy: IfNotPresent
+
+# OneFS access zone. System is the default zone; a per-tenant
+# zone would be a different StorageClass, not a different driver.
+isiAccessZone: System
+
+# Base path for dynamically provisioned volumes. Must exist on
+# OneFS first: mkdir /ifs/data/csi on the node, or the driver
+# fails to create volumes. See docs/ONEFS_CSI_SETUP.md.
+isiPath: /ifs/data/csi
+isiVolumePathPermissions: "0777"
+
+# Quotas on. SmartQuotas must be enabled on OneFS, or the
+# driver cannot set a quota and the volume is unprotected.
+# With quotas off, nothing stops a volume growing past its PVC size.
+enableQuota: true
+
+# OneFS API. Port 8080 is the Platform API. skipCertificateValidation
+# is true here because the Simulator uses a self-signed cert.
+# On a real cluster, set this false and provide isilon-cert-0.
+endpointPort: 8080
+skipCertificateValidation: true
+
+# Probe the cluster on start, so node labels are set automatically.
+noProbeOnStart: false
+autoProbe: true
+
+controller:
+  replicaCount: 1
+  # The controller is the only pod that talks to OneFS to create
+  # volumes. One replica is enough for a lab; production is 2.
+
+node:
+  # The node plugin runs on every worker node and mounts NFS.
+  # No replica count: it is a DaemonSet.
+  tolerations: []

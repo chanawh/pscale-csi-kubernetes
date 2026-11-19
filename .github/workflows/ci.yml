@@ -1,0 +1,53 @@
+# CI: every push runs the checks that do not need OneFS.
+# Python manifest tests + Terraform fmt/validate + Helm template
+# + a real kind cluster, where the manifests are applied with
+# kubectl --dry-run=client against the API server. The driver
+# itself is not installed in CI, because there is no OneFS
+# backend there; the driver install is validated by Helm
+# template only, and the full demo runs on your machine.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+      - name: Install tools
+        run: |
+          pip install -q pyyaml
+          curl -sL -o /tmp/helm.tar.gz https://get.helm.sh/helm-v3.16.2-linux-amd64.tar.gz
+          tar -xzf /tmp/helm.tar.gz -C /tmp
+          sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
+      - name: Python manifest tests
+        run: python -m unittest discover -s python/tests -v
+      - name: Terraform fmt and validate
+        run: |
+          cd terraform
+          terraform init -backend=false -input=false
+          terraform fmt -check
+          terraform validate
+      - name: Helm template the driver
+        run: |
+          helm repo add dell https://dell.github.io/helm-charts
+          helm repo update
+          helm template isilon dell/csi-isilon --version 2.18.1 --namespace csi-isilon -f helm/values.yaml > /tmp/csi-rendered.yaml
+          grep -q "csi-isilon.dellemc.com" /tmp/csi-rendered.yaml
+      - name: Kind cluster, apply manifests dry-run
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: pscale-csi
+          config: scripts/kind-config.yaml
+      - name: kubectl dry-run the manifests
+        run: |
+          for f in k8s/*.yaml; do kubectl create --dry-run=client -f "$f" > /dev/null; done
+          echo "all manifests apply clean against a real API server"

@@ -1,0 +1,20 @@
+# kind cluster: 1 control-plane, 2 workers, Kubernetes 1.31.
+# Two workers matter: the node-failure drill kills one worker
+# and proves the Postgres pod reschedules on the other, with
+# the same PowerScale volume reattached.
+# The workers need to reach OneFS on the host LAN. kind nodes
+# are Docker containers on a bridge network by default, so
+# OneFS must be reachable from the Docker bridge, or the
+# cluster must run with extraPortMappings / host networking.
+# See docs/ONEFS_CSI_SETUP.md for the networking note.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: pscale-csi
+nodes:
+  - role: control-plane
+  - role: worker
+    labels:
+      csi-node: worker-1
+  - role: worker
+    labels:
+      csi-node: worker-2

@@ -1,0 +1,17 @@
+# Clone: a second, independent PVC copied from postgres-data.
+# Use it for testing, so the original is never touched.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-clone
+  namespace: csi-demo
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: powerscale
+  resources:
+    requests:
+      storage: 10Gi
+  dataSource:
+    name: postgres-data
+    kind: PersistentVolumeClaim

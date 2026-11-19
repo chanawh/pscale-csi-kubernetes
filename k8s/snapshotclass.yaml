@@ -1,0 +1,10 @@
+# VolumeSnapshotClass. IsiPath must match the StorageClass it
+# snapshots, or the driver cannot find the source volume.
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: powerscale-snapclass
+driver: csi-isilon.dellemc.com
+deletionPolicy: Delete
+parameters:
+  IsiPath: /ifs/data/csi

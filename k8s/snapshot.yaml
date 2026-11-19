@@ -1,0 +1,12 @@
+# Snapshot of the Postgres PVC. Run after writing test data.
+# Restore is pvc-from-snapshot.yaml, which creates a new PVC
+# from this snapshot.
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: postgres-snap
+  namespace: csi-demo
+spec:
+  volumeSnapshotClassName: powerscale-snapclass
+  source:
+    persistentVolumeClaimName: postgres-data

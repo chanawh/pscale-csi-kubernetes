@@ -1,0 +1,36 @@
+# PowerScale StorageClass. One class, one access zone, one base path.
+# Provisioner is Dell's CSI driver, csi-isilon.dellemc.com, chart
+# dell/csi-isilon 2.18.1. NFS only, ReadWriteMany, because NFS.
+# allowVolumeExpansion: true is what makes the expand drill possible.
+# volumeBindingMode: WaitForFirstConsumer means the PV is not
+# created until a pod asks for it, so the volume lands on a node
+# that can actually reach OneFS.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: powerscale
+provisioner: csi-isilon.dellemc.com
+parameters:
+  AccessZone: System
+  IsiPath: /ifs/data/csi
+  ClusterName: nas2aws-onefs
+  isiVolumePathPermissions: "0777"
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+---
+# A second class for the finance share, to show one class per
+# access zone / path. Same driver, different IsiPath.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: powerscale-finance
+provisioner: csi-isilon.dellemc.com
+parameters:
+  AccessZone: System
+  IsiPath: /ifs/data/finance
+  ClusterName: nas2aws-onefs
+  isiVolumePathPermissions: "0777"
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
