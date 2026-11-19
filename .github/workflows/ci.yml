@@ -47,6 +47,17 @@ jobs:
         with:
           cluster_name: pscale-csi
           config: scripts/kind-config.yaml
+      - name: Install snapshot CRDs
+        # A vanilla kind cluster has no VolumeSnapshot CRDs, so
+        # kubectl cannot even recognise snapshot.yaml until
+        # these are installed. This was the CI failure on the
+        # first push: the dry-run step failed in 1 second on
+        # the snapshot types, not on our manifests.
+        run: |
+          kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v8.6.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
+          kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v8.6.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
+          kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v8.6.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
+          kubectl wait --for=condition=Established crd/volumesnapshots.snapshot.storage.k8s.io --timeout=60s
       - name: kubectl dry-run the manifests
         run: |
           for f in k8s/*.yaml; do kubectl create --dry-run=client -f "$f" > /dev/null; done
