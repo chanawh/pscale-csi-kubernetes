@@ -1,0 +1,15 @@
+# EBS VolumeSnapshotClass for EKS. Snapshots are EBS
+# snapshots under the hood: point-in-time, crash-consistent,
+# restorable to a new PVC in the same region. The EKS
+# snapshot drill mirrors the PowerScale one: snapshot the
+# Postgres PVC, restore a new PVC from it, prove the row.
+# Requires the external-snapshotter CRDs and snapshot
+# controller; on EKS the snapshot controller is installed
+# separately (see scripts/eks/deploy_eks.sh), it is not part
+# of the EBS CSI addon.
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: ebs-snapclass
+driver: ebs.csi.aws.com
+deletionPolicy: Delete

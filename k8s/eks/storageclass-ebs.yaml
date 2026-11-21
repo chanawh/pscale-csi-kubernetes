@@ -1,0 +1,22 @@
+# EBS StorageClass for EKS. Block storage, ReadWriteOnce:
+# one pod at a time, which is all a single-replica Postgres
+# needs. gp3 is the current general-purpose EBS type: cheaper
+# than gp2 with independently tunable IOPS/throughput.
+# encrypted: true so every volume is encrypted at rest.
+# allowVolumeExpansion: true is what makes the expand drill
+# possible on EKS, same as on PowerScale.
+# volumeBindingMode: WaitForFirstConsumer so the EBS volume is
+# created in the AZ of the node the pod lands on; EBS volumes
+# cannot move across AZs, so binding early can strand a pod.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ebs-gp3
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  encrypted: "true"
+  csi.storage.k8s.io/fstype: ext4
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer

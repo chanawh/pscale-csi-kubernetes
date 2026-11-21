@@ -1,6 +1,8 @@
 # ADR-0003: kind lab, EKS gated
 
-Status: accepted
+Status: accepted, updated by ADR-0006 (2026-11-21). The
+gate stays; what is behind it is now a full EKS runtime,
+not a bare cluster.
 
 ## Context
 

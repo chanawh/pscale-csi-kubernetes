@@ -1,3 +1,14 @@
+=== v1.1.0 EKS upgrade verification, 2026-11-21 ===
+
+--- python tests ---
+test_ebs_snapshot_agrees (test_manifests.TestEksUpgrade.test_ebs_snapshot_agrees) ... ok
+test_ebs_storageclass (test_manifests.TestEksUpgrade.test_ebs_storageclass) ... ok
+test_ebs_workload_agrees (test_manifests.TestEksUpgrade.test_ebs_workload_agrees) ... ok
+test_efs_pvc_is_rwx (test_manifests.TestEksUpgrade.test_efs_pvc_is_rwx) ... ok
+test_efs_storageclass (test_manifests.TestEksUpgrade.test_efs_storageclass) ... ok
+test_eks_scripts_exist (test_manifests.TestEksUpgrade.test_eks_scripts_exist) ... ok
+test_observability_values (test_manifests.TestEksUpgrade.test_observability_values) ... ok
+test_terraform_eks_addons_and_pod_identity (test_manifests.TestEksUpgrade.test_terraform_eks_addons_and_pod_identity) ... ok
 test_clone_source_is_postgres_pvc (test_manifests.TestManifests.test_clone_source_is_postgres_pvc) ... ok
 test_helm_values (test_manifests.TestManifests.test_helm_values) ... ok
 test_kind_config_has_two_workers (test_manifests.TestManifests.test_kind_config_has_two_workers) ... ok
@@ -9,7 +20,31 @@ test_statefulset_uses_pvc (test_manifests.TestManifests.test_statefulset_uses_pv
 test_storageclass (test_manifests.TestManifests.test_storageclass) ... ok
 
 ----------------------------------------------------------------------
-Ran 9 tests in 0.033s
+Ran 17 tests in 0.068s
 
 OK
 exit:0
+
+--- terraform fmt/validate ---
+fmt clean
+[32m[1mSuccess![0m The configuration is valid.
+[0m
+
+--- bash -n ---
+ok scripts/install_driver.sh
+ok scripts/run_demo.sh
+ok scripts/setup_kind.sh
+ok scripts/drills/clone.sh
+ok scripts/drills/expand.sh
+ok scripts/drills/node_failure.sh
+ok scripts/drills/snapshot_restore.sh
+ok scripts/eks/deploy_eks.sh
+ok scripts/eks/destroy_eks.sh
+ok scripts/eks/run_eks_demo.sh
+
+--- helm template ---
+dell/csi-isilon 2.18.1: 18 objects, csi-isilon.dellemc.com present
+kube-prometheus-stack: 113 objects
+
+--- not run live here ---
+kind (no Docker), driver installs, Postgres, drills, EKS apply (no AWS account)

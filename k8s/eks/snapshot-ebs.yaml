@@ -1,0 +1,29 @@
+# Snapshot of the EBS Postgres PVC, and a restore PVC from
+# it. Mirrors k8s/snapshot.yaml + k8s/pvc-from-snapshot.yaml
+# on PowerScale: same drill, different driver underneath.
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: postgres-ebs-snap
+  namespace: csi-demo
+spec:
+  volumeSnapshotClassName: ebs-snapclass
+  source:
+    persistentVolumeClaimName: postgres-data-ebs
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data-ebs-restored
+  namespace: csi-demo
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ebs-gp3
+  dataSource:
+    name: postgres-ebs-snap
+    kind: VolumeSnapshot
+    apiGroup: snapshot.storage.k8s.io
+  resources:
+    requests:
+      storage: 10Gi

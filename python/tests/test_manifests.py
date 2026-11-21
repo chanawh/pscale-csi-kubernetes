@@ -108,5 +108,99 @@ class TestManifests(unittest.TestCase):
         self.assertFalse((ROOT / "helm" / "isilon-creds.yaml").exists(), "filled-in creds file must never be committed")
 
 
+class TestEksUpgrade(unittest.TestCase):
+    """EKS path (v1.1.0): EBS + EFS CSI alongside PowerScale CSI."""
+
+    def test_ebs_storageclass(self):
+        docs = load_all(ROOT / "k8s" / "eks" / "storageclass-ebs.yaml")
+        sc = by_kind(docs, "StorageClass")[0]
+        self.assertEqual(sc["metadata"]["name"], "ebs-gp3")
+        self.assertEqual(sc["provisioner"], "ebs.csi.aws.com")
+        self.assertEqual(sc["parameters"]["type"], "gp3")
+        self.assertEqual(sc["parameters"]["encrypted"], "true")
+        self.assertTrue(sc["allowVolumeExpansion"])
+        self.assertEqual(sc["volumeBindingMode"], "WaitForFirstConsumer")
+
+    def test_efs_storageclass(self):
+        docs = load_all(ROOT / "k8s" / "eks" / "storageclass-efs.yaml")
+        sc = by_kind(docs, "StorageClass")[0]
+        self.assertEqual(sc["metadata"]["name"], "efs")
+        self.assertEqual(sc["provisioner"], "efs.csi.aws.com")
+        self.assertEqual(sc["parameters"]["provisioningMode"], "efs-ap")
+        # Substituted by scripts/eks/deploy_eks.sh from terraform
+        # output; a real filesystem ID must never be committed.
+        self.assertEqual(sc["parameters"]["fileSystemId"], "${EFS_FILE_SYSTEM_ID}")
+
+    def test_ebs_workload_agrees(self):
+        pvc = by_kind(load_all(ROOT / "k8s" / "eks" / "pvc-postgres-ebs.yaml"), "PersistentVolumeClaim")[0]
+        self.assertEqual(pvc["metadata"]["name"], "postgres-data-ebs")
+        self.assertEqual(pvc["spec"]["storageClassName"], "ebs-gp3")
+        self.assertIn("ReadWriteOnce", pvc["spec"]["accessModes"])  # EBS is block
+        sts = by_kind(load_all(ROOT / "k8s" / "eks" / "postgres-statefulset-ebs.yaml"), "StatefulSet")[0]
+        vols = sts["spec"]["template"]["spec"]["volumes"]
+        claim = [v for v in vols if "persistentVolumeClaim" in v][0]
+        self.assertEqual(claim["persistentVolumeClaim"]["claimName"], "postgres-data-ebs")
+        self.assertNotIn("volumeClaimTemplates", sts["spec"])
+
+    def test_efs_pvc_is_rwx(self):
+        pvc = by_kind(load_all(ROOT / "k8s" / "eks" / "pvc-shared-efs.yaml"), "PersistentVolumeClaim")[0]
+        self.assertEqual(pvc["spec"]["storageClassName"], "efs")
+        self.assertIn("ReadWriteMany", pvc["spec"]["accessModes"])  # EFS is file
+
+    def test_ebs_snapshot_agrees(self):
+        docs = load_all(ROOT / "k8s" / "eks" / "snapshot-ebs.yaml")
+        vs = by_kind(docs, "VolumeSnapshot")[0]
+        self.assertEqual(vs["spec"]["source"]["persistentVolumeClaimName"], "postgres-data-ebs")
+        self.assertEqual(vs["spec"]["volumeSnapshotClassName"], "ebs-snapclass")
+        snapclass = by_kind(load_all(ROOT / "k8s" / "eks" / "snapshotclass-ebs.yaml"), "VolumeSnapshotClass")[0]
+        self.assertEqual(snapclass["driver"], "ebs.csi.aws.com")
+        restored = [p for p in by_kind(docs, "PersistentVolumeClaim")][0]
+        self.assertEqual(restored["spec"]["dataSource"]["name"], vs["metadata"]["name"])
+        self.assertEqual(restored["spec"]["dataSource"]["kind"], "VolumeSnapshot")
+
+    def test_observability_values(self):
+        with open(ROOT / "helm" / "observability-values.yaml") as f:
+            values = yaml.safe_load(f)
+        self.assertIn("grafana", values)
+        self.assertIn("prometheus", values)
+        self.assertTrue(values["nodeExporter"]["enabled"])
+        self.assertTrue(values["kubeStateMetrics"]["enabled"])
+        self.assertEqual(values["prometheus"]["prometheusSpec"]["retention"], "24h")
+
+    def test_terraform_eks_addons_and_pod_identity(self):
+        eks = (ROOT / "terraform" / "eks.tf").read_text()
+        for addon in ("aws-ebs-csi-driver", "aws-efs-csi-driver", "vpc-cni", "coredns", "kube-proxy"):
+            self.assertIn(addon, eks, addon)
+        self.assertIn("aws_eks_pod_identity_association", eks)
+        self.assertIn("ebs-csi-controller-sa", eks)
+        self.assertIn("efs-csi-controller-sa", eks)
+        self.assertIn("enabled_cluster_log_types", eks)
+        self.assertIn("encryption_config", eks)
+        # Everything real-AWS stays gated off by default.
+        variables = (ROOT / "terraform" / "variables.tf").read_text()
+        self.assertIn('variable "enable_eks"', variables)
+        efs = (ROOT / "terraform" / "efs.tf").read_text()
+        self.assertIn("aws_efs_file_system", efs)
+        self.assertIn("aws_efs_mount_target", efs)
+        self.assertIn("2049", efs)
+
+    def test_eks_scripts_exist(self):
+        for name in ("deploy_eks.sh", "run_eks_demo.sh", "destroy_eks.sh"):
+            script = ROOT / "scripts" / "eks" / name
+            self.assertTrue(script.exists(), name)
+            text = script.read_text()
+            self.assertTrue(text.startswith("#!/usr/bin/env bash"), name)
+            self.assertIn("set -euo pipefail", text, name)
+        # The demo must measure pod recovery, not estimate it.
+        demo = (ROOT / "scripts" / "eks" / "run_eks_demo.sh").read_text()
+        self.assertIn("kubectl drain", demo)
+        self.assertIn("date +%s", demo)
+        # Destroy must delete PVCs before terraform destroy, or
+        # EBS volumes orphan and keep billing.
+        destroy = (ROOT / "scripts" / "eks" / "destroy_eks.sh").read_text()
+        delete_at = destroy.index("delete namespace csi-demo")
+        self.assertLess(delete_at, destroy.index("terraform destroy", delete_at))
+
+
 if __name__ == "__main__":
     unittest.main()

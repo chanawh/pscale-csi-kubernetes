@@ -1,0 +1,18 @@
+# Shared claim on EFS. ReadWriteMany: many pods, many nodes,
+# one filesystem. This is the EKS counterpart to the
+# PowerScale RWX claim: use it for workloads that genuinely
+# share files (uploads, shared caches, multi-writer jobs),
+# not as a faster disk. EFS throughput is network-bound,
+# same lesson as NFS on OneFS.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-data-efs
+  namespace: csi-demo
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: efs
+  resources:
+    requests:
+      storage: 10Gi

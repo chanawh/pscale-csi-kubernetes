@@ -1,9 +1,10 @@
 {
+  "helm_template": "dell/csi-isilon 2.18.1 renders 18 objects, csi-isilon.dellemc.com present; kube-prometheus-stack with observability values renders 113 objects",
+  "not_run_live_here": "kind (no Docker in VM), driver installs, Postgres, drills, any EKS apply (no AWS account in VM) - kind runs on your machine with OneFS Simulator and in CI dry-run; EKS is a one-day operator run destroyed same day, see docs/REAL_EKS_ONE_DAY.md",
   "project": "pscale-csi-kubernetes",
-  "verified": "2026-11-18",
-  "python_tests": "9/9 pass",
-  "terraform": "fmt clean, validate clean",
-  "helm_template": "dell/csi-isilon 2.18.1 renders 18 objects, csi-isilon.dellemc.com present",
-  "scripts": "bash -n clean",
-  "not_run_live_here": "kind (no Docker in VM), driver install, Postgres, four drills - run on your machine with OneFS Simulator; CI applies manifests dry-run against a real kind API server"
+  "python_tests": "17/17 pass (9 PowerScale + 8 EKS upgrade)",
+  "scripts": "bash -n clean, including scripts/eks/deploy_eks.sh, run_eks_demo.sh, destroy_eks.sh",
+  "terraform": "fmt clean, validate clean (EKS cluster, node group, EBS/EFS CSI addons, Pod Identity, EFS, KMS, gated enable_eks=false)",
+  "verified": "2026-11-21",
+  "version": "v1.1.0 (EKS upgrade)"
 }

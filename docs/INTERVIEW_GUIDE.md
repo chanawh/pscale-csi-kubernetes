@@ -10,10 +10,22 @@
 > rescheduling with data intact; Terraform for EKS gated for
 > the real-AWS path.
 
-Do not change "lab" to "production". The cluster is kind,
-the storage is a Simulator, and the EKS Terraform was
-validated only, not applied. Saying otherwise loses the
-role in a technical interview.
+After the one-day EKS run, the upgraded bullet (use only
+once measured and evidenced):
+
+> Deployed stateful Kubernetes workloads on CSI storage
+> across PowerScale (kind lab) and EKS (Terraform-built
+> cluster, EBS gp3 + EFS CSI addons with Pod Identity):
+> snapshot/restore, online expansion 10 to 20 GiB, and
+> node-drain rescheduling with data intact, pod recovery
+> measured at N seconds; Prometheus/Grafana observability
+> on EKS.
+
+Do not change "lab" to "production". The PowerScale
+cluster is kind, the storage is a Simulator, and the EKS
+Terraform is validated only until the one-day run is
+applied, measured, and evidenced. Saying otherwise loses
+the role in a technical interview.
 
 ## The 30-second pitch
 
@@ -23,7 +35,9 @@ the OneFS node I already run. Postgres runs on a PowerScale
 PVC, and I proved it with four drills, snapshot and restore,
 clone, expand, and killing a worker node to show the volume
 follows the pod. It runs for free on kind, and the same
-manifests run on EKS."
+workload runs on EKS with AWS's EBS and EFS CSI drivers,
+where the node drain is timed so the recovery number is
+measured."
 
 ## Ten questions you will be asked, and the answer
 
@@ -85,6 +99,49 @@ manifests run on EKS."
     and the EKS Terraform in terraform/eks.tf, which
     is gated off in the lab. Then destroy the cluster
     the same day, EKS is ~$135/month left running.
+
+11. EBS vs EFS vs PowerScale, when each?
+    EBS is block, ReadWriteOnce, AZ-bound: right for a
+    single-writer database, wrong for shared files.
+    EFS is file, ReadWriteMany, multi-AZ, throughput
+    network-bound: right for shared uploads and caches.
+    PowerScale CSI is NFS ReadWriteMany on enterprise
+    storage you already own, with SmartQuotas and
+    snapshots: right when the data must stay on OneFS.
+    Same PVC API, three different failure and cost
+    profiles. That comparison is the project.
+
+12. What is EKS Pod Identity, and why not IRSA?
+    Pod Identity binds an IAM role to one namespace +
+    service account through the EKS API, so each CSI
+    controller gets least-privilege credentials without
+    maintaining an OIDC provider thumbprint. IRSA does
+    the same job through IAM roles for service accounts
+    and an OIDC provider; Pod Identity is the newer,
+    simpler path for EKS addons. Either beats giving
+    the node role storage permissions.
+
+13. Your pod recovery was "within 5 minutes". Explain.
+    That estimate came from the kind drill's
+    `kubectl wait --timeout=300s` and the Kubernetes
+    default: an unreachable node is marked NotReady
+    after ~40s, and pods carry a default 300s
+    toleration before eviction. On EKS the drill uses
+    `kubectl drain`, which is graceful, and times
+    drain-to-Ready with `date +%s`, so the number I
+    quote after the EKS run is measured, not the
+    default toleration restated. If I needed faster
+    failover I would shorten tolerationSeconds and
+    accept the flapping risk that comes with it.
+
+14. How does observability work on EKS here?
+    kube-prometheus-stack: Prometheus scrapes node
+    exporter, kube-state-metrics, and CSI controller
+    metrics; Grafana shows node pressure and PVC/pod
+    state during the drain; Alertmanager is installed
+    but lab-sized. EKS control-plane logs go to
+    CloudWatch. Retention is 24h because it is a
+    one-day lab, not a production monitoring platform.
 
 ## What not to say
 

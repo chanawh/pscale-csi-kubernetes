@@ -1,0 +1,56 @@
+# Postgres on EBS, for EKS. Same shape as the PowerScale
+# version (one replica, standalone PVC, no
+# volumeClaimTemplates so snapshot/restore/expand all target
+# the same claim name); only the claim differs. Keeping the
+# workload identical is the point: storage is the variable,
+# Postgres is the constant.
+#
+# Tolerations: the node-drain drill measures pod recovery.
+# With default tolerations an unreachable node holds pods
+# for 300s before eviction; a drain is graceful, so this
+# StatefulSet does not need custom tolerations to reschedule
+# quickly. See docs/INTERVIEW_GUIDE.md on the 300s default.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: csi-demo
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: postgres-secret
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-data-ebs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: csi-demo
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+  clusterIP: None

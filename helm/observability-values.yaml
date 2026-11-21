@@ -1,0 +1,71 @@
+# Helm values for kube-prometheus-stack (Prometheus +
+# Grafana + Alertmanager), the observability path for the
+# EKS run. Install with:
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm install observability prometheus-community/kube-prometheus-stack \
+#     --namespace observability --create-namespace \
+#     -f helm/observability-values.yaml
+#
+# Sized for 2 x t3.medium lab nodes: small retention, small
+# resource requests, no long-term storage. This is a one-day
+# lab stack, not a production monitoring platform. The Dell
+# CSI driver's own metrics endpoint and podmon (port 8444,
+# see docs/SYSTEM_DESIGN.md section 8) can be scraped by
+# adding a ServiceMonitor for the driver namespace on the
+# kind/PowerScale path; on EKS the EBS/EFS CSI controllers
+# expose metrics the stack can scrape the same way.
+#
+# Grafana admin password is a lab placeholder, stated as
+# such. Change it for anything beyond a one-day lab, and
+# never expose Grafana publicly without auth in front of it.
+
+grafana:
+  adminPassword: "lab-only-change-me"
+  persistence:
+    enabled: false
+  service:
+    type: ClusterIP
+
+prometheus:
+  prometheusSpec:
+    retention: 24h
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    # Lab: scrape ServiceMonitors in every namespace, so the
+    # CSI controllers and the demo workload are picked up
+    # without per-namespace allowlists.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+
+# Node and kube-state metrics are the point of the stack in
+# this project: node pressure, PVC/PV state, pod restarts,
+# and rescheduling during the node-drain drill.
+nodeExporter:
+  enabled: true
+
+kubeStateMetrics:
+  enabled: true
+
+# Trim default dashboards/rules that need components the lab
+# does not run, so the stack installs clean on small nodes.
+kubeControllerManager:
+  enabled: false
+
+kubeScheduler:
+  enabled: false
+
+kubeEtcd:
+  enabled: false

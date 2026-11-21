@@ -29,9 +29,12 @@ Professional, CKA, Terraform Associate, RHCE, CCNA.
 6. Run the migration project against LocalStack in Docker,
    then against the OneFS node with `--source-mode onefs`.
 7. One-day real AWS run for the migration project, and
-   optionally a one-day EKS run for this project,
-   about $4.50 for a day, then destroy. Resume bullets
-   count only after clean verifies there.
+   a one-day EKS run for this project
+   (`scripts/eks/deploy_eks.sh`, `run_eks_demo.sh`,
+   `destroy_eks.sh`), about $4.50-5.00 for a day, then
+   destroy. Record the measured pod-recovery time from
+   the node-drain drill. Resume bullets count only after
+   clean verifies there.
 8. Save evidence from those runs. Evidence beats claims.
 
 ## Phase 3, use it to get interviews
