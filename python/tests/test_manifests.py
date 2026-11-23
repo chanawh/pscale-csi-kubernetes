@@ -6,6 +6,7 @@ that the snapshot / clone / restore manifests agree with the
 StorageClass and PVC they refer to. Run with:
   python -m unittest discover -s python/tests -v
 """
+import json
 import unittest
 from pathlib import Path
 
@@ -183,6 +184,23 @@ class TestEksUpgrade(unittest.TestCase):
         self.assertIn("aws_efs_file_system", efs)
         self.assertIn("aws_efs_mount_target", efs)
         self.assertIn("2049", efs)
+
+    def test_grafana_dashboard(self):
+        dash = json.loads((ROOT / "monitoring" / "grafana" / "csi-storage-dashboard.json").read_text())
+        self.assertEqual(dash["uid"], "csi-storage")
+        self.assertEqual(len(dash["panels"]), 8)
+        for panel in dash["panels"]:
+            self.assertTrue(panel["targets"][0]["expr"].strip())
+
+    def test_prometheus_alerts(self):
+        docs = list(yaml.safe_load_all((ROOT / "monitoring" / "prometheus" / "csi-alerts.yaml").read_text()))
+        rule = docs[0]
+        self.assertEqual(rule["kind"], "PrometheusRule")
+        rules = rule["spec"]["groups"][0]["rules"]
+        self.assertEqual(len(rules), 5)
+        for r in rules:
+            self.assertTrue(r["expr"].strip())
+            self.assertIn("severity", r["labels"])
 
     def test_eks_scripts_exist(self):
         for name in ("deploy_eks.sh", "run_eks_demo.sh", "destroy_eks.sh"):

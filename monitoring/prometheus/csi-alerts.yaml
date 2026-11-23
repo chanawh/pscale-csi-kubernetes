@@ -1,0 +1,51 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: csi-storage-alerts
+  namespace: csi-demo
+  labels:
+    release: observability
+spec:
+  groups:
+    - name: csi-storage
+      rules:
+        - alert: CsiPvcPending
+          expr: kube_persistentvolumeclaim_status_phase{namespace="csi-demo", phase="Pending"} == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PVC pending in csi-demo"
+            description: "A PVC in csi-demo has been Pending for 5 minutes. Check the CSI controller and StorageClass (EFS filesystem ID substitution is the usual lab cause)."
+        - alert: CsiPvcNearFull
+          expr: kubelet_volume_stats_used_bytes{namespace="csi-demo"} / kubelet_volume_stats_capacity_bytes{namespace="csi-demo"} > 0.85
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PVC over 85% full in csi-demo"
+            description: "A CSI volume is over 85% full. Expand the PVC (allowVolumeExpansion is set on ebs-gp3 and powerscale classes) or clean up."
+        - alert: CsiPodNotReady
+          expr: kube_pod_status_ready{namespace="csi-demo", pod=~"postgres.*"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Postgres pod not ready in csi-demo"
+            description: "Postgres has not been Ready for 5 minutes. Outside the node-drain drill this means the volume did not reattach; on EBS check AZ placement."
+        - alert: CsiControllerDown
+          expr: absent(kube_pod_status_phase{pod=~"csi.*|ebs-csi.*|efs-csi.*", phase="Running"})
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No CSI controller pod running"
+            description: "No CSI controller pod is Running. Provisioning, snapshots, and expansion will stall until the driver is back."
+        - alert: CsiSnapshotNotReady
+          expr: kube_volumesnapshot_status_ready{namespace="csi-demo"} == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Volume snapshot not ready in csi-demo"
+            description: "A VolumeSnapshot has not reached readyToUse in 10 minutes. Check the snapshot controller and the CSI driver logs."

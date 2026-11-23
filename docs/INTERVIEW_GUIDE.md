@@ -137,9 +137,15 @@ measured."
 14. How does observability work on EKS here?
     kube-prometheus-stack: Prometheus scrapes node
     exporter, kube-state-metrics, and CSI controller
-    metrics; Grafana shows node pressure and PVC/pod
-    state during the drain; Alertmanager is installed
-    but lab-sized. EKS control-plane logs go to
+    metrics. The dashboard and alerts are built as code
+    in monitoring/: an 8-panel Grafana dashboard (PVC
+    phase, requested vs used bytes, Postgres restarts,
+    pod readiness during the drain, node CPU/memory,
+    CSI controller pods, snapshot readiness) and a
+    PrometheusRule with 5 alerts (PVC pending, PVC over
+    85% full, Postgres not ready, CSI controller down,
+    snapshot not ready), validated by tests, loaded on
+    the EKS run. EKS control-plane logs go to
     CloudWatch. Retention is 24h because it is a
     one-day lab, not a production monitoring platform.
 

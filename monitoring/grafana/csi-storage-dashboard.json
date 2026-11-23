@@ -1,0 +1,153 @@
+{
+  "panels": [
+    {
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "targets": [
+        {
+          "expr": "count by (phase) (kube_persistentvolumeclaim_status_phase{namespace=\"csi-demo\"})",
+          "legendFormat": "{{phase}}"
+        }
+      ],
+      "title": "PVCs by phase",
+      "type": "stat"
+    },
+    {
+      "gridPos": {
+        "h": 4,
+        "w": 9,
+        "x": 6,
+        "y": 0
+      },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "kube_persistentvolumeclaim_resource_requests_storage_bytes{namespace=\"csi-demo\"}",
+          "legendFormat": "requested {{persistentvolumeclaim}}"
+        },
+        {
+          "expr": "kubelet_volume_stats_used_bytes{namespace=\"csi-demo\"}",
+          "legendFormat": "used {{persistentvolumeclaim}}"
+        }
+      ],
+      "title": "PVC requested vs used bytes",
+      "type": "timeseries"
+    },
+    {
+      "gridPos": {
+        "h": 4,
+        "w": 9,
+        "x": 15,
+        "y": 0
+      },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "increase(kube_pod_container_status_restarts_total{namespace=\"csi-demo\", pod=~\"postgres.*\"}[1h])",
+          "legendFormat": "{{pod}} {{container}}"
+        }
+      ],
+      "title": "Postgres pod restarts",
+      "type": "timeseries"
+    },
+    {
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "kube_pod_status_ready{namespace=\"csi-demo\", pod=~\"postgres.*\"}",
+          "legendFormat": "{{pod}}"
+        }
+      ],
+      "title": "Pod readiness (drain drill)",
+      "type": "state-timeline"
+    },
+    {
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 4
+      },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "title": "Node CPU usage",
+      "type": "timeseries"
+    },
+    {
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 4
+      },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "title": "Node memory usage",
+      "type": "timeseries"
+    },
+    {
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 8
+      },
+      "id": 7,
+      "targets": [
+        {
+          "expr": "count(kube_pod_status_phase{namespace=~\"csi-isilon|kube-system\", pod=~\"csi.*|ebs-csi.*|efs-csi.*\", phase=\"Running\"})",
+          "legendFormat": "running"
+        }
+      ],
+      "title": "CSI controller pods running",
+      "type": "stat"
+    },
+    {
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 8
+      },
+      "id": 8,
+      "targets": [
+        {
+          "expr": "count(kube_volumesnapshot_status_ready{namespace=\"csi-demo\"} == 1)",
+          "legendFormat": "ready"
+        }
+      ],
+      "title": "Volume snapshots ready",
+      "type": "stat"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "title": "CSI Storage (PowerScale / EBS / EFS)",
+  "uid": "csi-storage",
+  "version": 1
+}

@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.1.1, 2026-11-22
+
+Monitoring as code: `monitoring/grafana/csi-storage-dashboard.json`
+(8 panels: PVC phase, requested vs used bytes, Postgres
+restarts, pod readiness for the drain drill, node CPU/memory,
+CSI controller pods, snapshot readiness) and
+`monitoring/prometheus/csi-alerts.yaml` (PrometheusRule, 5
+alerts: PVC pending, PVC over 85% full, Postgres not ready,
+CSI controller down, snapshot not ready). Validated by 2 new
+tests (19/19 pass). Built as code, not yet applied to a live
+cluster from this build environment; loads with the
+observability stack on the EKS one-day run.
+
 ## v1.1.0, 2026-11-21
 
 EKS upgrade. Terraform now builds the full real-AWS path:

@@ -94,7 +94,7 @@ Storage and Platform Engineer.
 **For hiring managers and interviewers:** start at
 `docs/INTERVIEW_GUIDE.md`. It has the STAR bullets, the
 30-second pitch, and the questions you will be asked, with
-answers. CI runs on every push: 17 manifest/Terraform
+answers. CI runs on every push: 19 manifest/Terraform/monitoring
 tests, Terraform fmt/validate, Helm template, and a real
 kind cluster where the manifests are applied dry-run, see
 `.github/workflows/ci.yml`.
@@ -109,7 +109,8 @@ kind cluster where the manifests are applied dry-run, see
 | `terraform/` | EKS cluster + node group + EBS/EFS CSI addons + Pod Identity + EFS filesystem + KMS, gated off by `enable_eks = false` |
 | `scripts/` | kind path: setup_kind, install_driver, run_demo, and 4 standalone drills |
 | `scripts/eks/` | EKS path: deploy_eks (apply + addons + manifests + observability), run_eks_demo (timed drills), destroy_eks (PVCs first, then destroy, orphan check) |
-| `python/tests/` | 17 checks on the manifests, Helm values, Terraform, and scripts, no cluster needed |
+| `python/tests/` | 19 checks on the manifests, Helm values, Terraform, scripts, and monitoring, no cluster needed |
+| `monitoring/` | Grafana dashboard (8 panels) + PrometheusRule (5 alerts) as code, validated in CI, loaded on the EKS run |
 | `docs/ONEFS_CSI_SETUP.md` | OneFS side: base path, SmartQuotas, NFS, networking |
 | `docs/INTERVIEW_GUIDE.md` | STAR bullets, 30-second pitch, interview Q&As |
 | `docs/REAL_EKS_ONE_DAY.md` | One real EKS run, about $4.50 for a day, step by step with destroy checklist |
@@ -166,7 +167,7 @@ every step, same as on PowerScale.
 
 ## Verified live
 
-- Python tests: 17/17 pass (9 PowerScale + 8 EKS upgrade)
+- Python tests: 19/19 pass (9 PowerScale + 8 EKS upgrade + 2 monitoring)
 - Terraform fmt and validate: clean (EKS, addons, Pod Identity, EFS, KMS)
 - Helm template, dell/csi-isilon 2.18.1: renders 18 objects, driver name `csi-isilon.dellemc.com` present; kube-prometheus-stack with `helm/observability-values.yaml`: renders 113 objects
 - Scripts: `bash -n` clean, including `scripts/eks/`
