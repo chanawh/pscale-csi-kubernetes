@@ -79,8 +79,13 @@ Docker; this build VM does not):
    to Ready and to serving queries.
 2. **Hard stop, no intervention** — `docker kill` the
    node, watch 240s. Expected: stall. The pod stays
-   Terminating and no replacement appears. A stall is
-   the correct, documented result.
+   stuck with no replacement created. Note the phase
+   reads Running, not Terminating: phase is
+   kubelet-reported and the dead kubelet never updates
+   it. Whether eviction started is decided by the
+   pod's deletionTimestamp, which case 2 now records
+   in the evidence (v1.1.8). A stall is the correct,
+   documented result.
 3. **Hard stop + out-of-service taint** — `docker kill`,
    wait for NotReady and eviction start, apply the
    taint, time docker-kill to Ready and to serving

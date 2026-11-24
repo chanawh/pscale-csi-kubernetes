@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.1.8, 2026-11-24
+
+Answer the open stall question. Run 45336965561
+showed the pod Running/NotReady for 240s with no
+replacement — not Terminating, as the docs said.
+Phase is kubelet-reported, so a dead kubelet leaves
+it stale; whether eviction started is decided by
+the pod's deletionTimestamp. Case 2 now records
+deletionTimestamp, tolerations, and node taints in
+the log and in `evidence/node-failure-drill.json`,
+so the next run settles whether the 30s
+tolerations fired at ~70s. No behavior change.
+Tests still 20/20.
+
 ## v1.1.7, 2026-11-24
 
 PowerScale-path drill, ready to run. The CI numbers are

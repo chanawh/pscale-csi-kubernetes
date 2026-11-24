@@ -126,6 +126,8 @@ write_evidence() {
   CASE1_DRAIN_READY="$CASE1_DRAIN_READY" CASE1_DRAIN_SERVING="$CASE1_DRAIN_SERVING" \
   CASE2_STALLED="$CASE2_STALLED" CASE3_TAINT_READY="$CASE3_TAINT_READY" \
   CASE3_TAINT_SERVING="$CASE3_TAINT_SERVING" COMPLETED="$COMPLETED" \
+  CASE2_DELETION_TS="$CASE2_DELETION_TS" CASE2_TOLERATIONS="$CASE2_TOLERATIONS" \
+  CASE2_NODE_TAINTS="$CASE2_NODE_TAINTS" \
   LAST_ERROR="$LAST_ERROR" python3 - "$EVIDENCE" <<PY
 import json, os, subprocess, sys
 def out(cmd):
@@ -153,6 +155,9 @@ evidence = {
         "hard_stop_no_intervention": {
             "stalled": boolean("CASE2_STALLED"),
             "observed_seconds": 240,
+            "deletion_timestamp": os.environ.get("CASE2_DELETION_TS") or None,
+            "tolerations": os.environ.get("CASE2_TOLERATIONS") or None,
+            "node_taints": os.environ.get("CASE2_NODE_TAINTS") or None,
         },
         "hard_stop_out_of_service_taint": {
             "ready_seconds": num("CASE3_TAINT_READY"),
@@ -177,7 +182,7 @@ run_test_job
 echo "setup: Postgres Ready, row written"
 
 CASE1_DRAIN_READY=""; CASE1_DRAIN_SERVING=""
-CASE2_STALLED=""; CASE3_TAINT_READY=""; CASE3_TAINT_SERVING=""
+CASE2_STALLED=""; CASE2_DELETION_TS=""; CASE2_TOLERATIONS=""; CASE2_NODE_TAINTS=""; CASE3_TAINT_READY=""; CASE3_TAINT_SERVING=""
 
 echo "== case 1: drain (graceful) =="
 NODE=$(pod_node)
@@ -199,9 +204,24 @@ echo "Postgres is on node: $NODE"
 T0=$(date +%s)
 docker kill "$NODE" >/dev/null
 # Watch for 240s: past NotReady (~40s) and eviction start
-# (~40s + 30s toleration). The pod should stay Terminating
-# with no Ready replacement.
+# (~40s + 30s toleration). The pod should stay stuck with
+# no Ready replacement. Phase reads Running, not
+# Terminating: phase is kubelet-reported and the dead
+# kubelet never updates it. Whether eviction started is
+# decided by deletionTimestamp, recorded below.
 sleep 240
+# Why is it stuck? Record the evidence that decides
+# whether eviction started: the pod's tolerations and
+# deletionTimestamp (set when eviction deletes it), and
+# the node's taints. Run 45336965561 showed the pod
+# Running/NotReady with no replacement and no record of
+# whether the 30s tolerations had fired.
+CASE2_DELETION_TS=$($KUBECTL -n "$NS" get pod -l app=postgres -o jsonpath='{.items[0].metadata.deletionTimestamp}' 2>/dev/null || echo "")
+CASE2_TOLERATIONS=$($KUBECTL -n "$NS" get pod -l app=postgres -o jsonpath='{.items[0].spec.tolerations}' 2>/dev/null || echo "")
+CASE2_NODE_TAINTS=$($KUBECTL get node "$NODE" -o jsonpath='{.spec.taints}' 2>/dev/null || echo "")
+echo "case 2: deletionTimestamp=${CASE2_DELETION_TS:-none}"
+echo "case 2: tolerations=${CASE2_TOLERATIONS:-none}"
+echo "case 2: node_taints=${CASE2_NODE_TAINTS:-none}"
 PHASE=$(pod_phase)
 READY=$(pod_ready)
 if [ "$PHASE" = "Running" ] && [ "$READY" = "True" ]; then
