@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.1.5, 2026-11-24
+
+Second drill run (45336965561) got further, then
+died in case 3: the node had not reported NotReady
+90s after the kill, and `wait_notready` returning 1
+killed the script under `set -e` — silently, and
+before any evidence was written. Case 1 measured
+again (Ready 2s, serving 5s) and case 2 confirmed
+the stall (pod Running/Ready False after 240s,
+recovered in place after the node restart, row
+intact). Fixes: `wait_notready` now logs every poll
+and waits 180s; case 3 falls back to the container
+state (`docker inspect`) when the NotReady flag
+lags, and fails loudly only if the container is
+still running. Evidence is now written by an EXIT
+trap, so a mid-drill failure still leaves a partial
+artifact with the measured cases and the failing
+command. Tests still 20/20.
+
 ## v1.1.4, 2026-11-24
 
 First drill run, first fix. Run 45333538587 (24 Nov

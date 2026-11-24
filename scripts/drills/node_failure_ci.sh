@@ -41,7 +41,14 @@
 # stop the kind node container. SIGKILL is also the more
 # faithful hard failure: a power cut, not a graceful
 # shutdown. That first run still measured case 1 (drain):
-# Ready in 6s, serving in 10s.
+# Ready in 6s, serving in 10s. The second run
+# (45336965561) measured case 1 again (Ready 2s, serving
+# 5s) and confirmed case 2 (stall, pod Running/Ready
+# False after 240s, recovered in place after restart),
+# then died in case 3: the node had not reported
+# NotReady 90s after the kill. v1.1.5 waits 180s and
+# trusts the container state when the flag lags, and
+# always writes (partial) evidence via an EXIT trap.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 NS=csi-demo
@@ -76,16 +83,85 @@ wait_ready() {
 }
 
 # Wait until the node reports NotReady, or time out.
+# Logs each poll: the 24 Nov 2026 run (45336965561)
+# died silently here when the node had not flipped
+# within 90s, and the log gave no clue why.
 wait_notready() {
   local node="$1" timeout="$2" waited=0
   while [ "$waited" -lt "$timeout" ]; do
     local ready
     ready=$($KUBECTL get node "$node" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "?")
+    echo "wait_notready: node $node Ready=$ready (${waited}s/${timeout}s)"
     [ "$ready" = "False" ] && return 0
     sleep 5; waited=$((waited + 5))
   done
   return 1
 }
+
+# True when the kind node container is actually
+# stopped. The NotReady flag can lag the kill by
+# more than the 40s grace (API slowness after a
+# node restart); the container state is the ground
+# truth about whether the kubelet is dead.
+node_container_dead() {
+  [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = "false" ]
+}
+
+# Evidence is written on EXIT, not just at the end:
+# the first two Actions runs died mid-drill (docker
+# stop failure, then a NotReady timeout) and took
+# their measured cases down with them. Partial
+# evidence plus the failing command is worth more
+# than no artifact.
+COMPLETED="false"
+LAST_ERROR=""
+trap 'LAST_ERROR="$BASH_COMMAND (exit $?)"' ERR
+write_evidence() {
+  mkdir -p "$ROOT/evidence"
+  CASE1_DRAIN_READY="$CASE1_DRAIN_READY" CASE1_DRAIN_SERVING="$CASE1_DRAIN_SERVING" \
+  CASE2_STALLED="$CASE2_STALLED" CASE3_TAINT_READY="$CASE3_TAINT_READY" \
+  CASE3_TAINT_SERVING="$CASE3_TAINT_SERVING" COMPLETED="$COMPLETED" \
+  LAST_ERROR="$LAST_ERROR" python3 - "$EVIDENCE" <<PY
+import json, os, subprocess, sys
+def out(cmd):
+    try:
+        return subprocess.check_output(cmd, shell=True, text=True).strip()
+    except subprocess.CalledProcessError:
+        return ""
+def num(name):
+    v = os.environ.get(name, "")
+    return int(v) if v not in ("", "null") else None
+def boolean(name):
+    v = os.environ.get(name, "")
+    return {"true": True, "false": False}.get(v)
+evidence = {
+    "scope": "kind + in-cluster NFS (NOT PowerScale CSI, NOT OneFS)",
+    "kubernetes": out("$KUBECTL version --short 2>/dev/null | head -1"),
+    "kind": out("kind version 2>/dev/null"),
+    "completed": os.environ.get("COMPLETED") == "true",
+    "error": os.environ.get("LAST_ERROR") or None,
+    "cases": {
+        "drain_graceful": {
+            "ready_seconds": num("CASE1_DRAIN_READY"),
+            "serving_seconds": num("CASE1_DRAIN_SERVING"),
+        },
+        "hard_stop_no_intervention": {
+            "stalled": boolean("CASE2_STALLED"),
+            "observed_seconds": 240,
+        },
+        "hard_stop_out_of_service_taint": {
+            "ready_seconds": num("CASE3_TAINT_READY"),
+            "serving_seconds": num("CASE3_TAINT_SERVING"),
+        },
+    },
+}
+with open(sys.argv[1], "w") as f:
+    json.dump(evidence, f, indent=2)
+print(open(sys.argv[1]).read())
+PY
+  echo "evidence written to $EVIDENCE"
+}
+trap write_evidence EXIT
 
 echo "== setup: Postgres on NFS =="
 $KUBECTL apply -f "$ROOT/k8s/postgres-statefulset.yaml" >/dev/null
@@ -145,7 +221,21 @@ NODE=$(pod_node)
 echo "Postgres is on node: $NODE"
 T0=$(date +%s)
 docker kill "$NODE" >/dev/null
-wait_notready "$NODE" 90
+# The NotReady flag can lag the kill (the 24 Nov 2026
+# run timed out at 90s with the node still reporting
+# Ready). Wait up to 180s, then trust the container
+# state: if the container is stopped, the kubelet is
+# dead regardless of what the flag says, and the taint
+# is safe to apply. If it is still running, fail
+# loudly — the kill did not take.
+if ! wait_notready "$NODE" 180; then
+  if node_container_dead "$NODE"; then
+    echo "case 3: node $NODE still reports Ready after 180s, but its container is stopped — proceeding to the taint"
+  else
+    echo "case 3: node $NODE still Ready after 180s AND its container is still running — docker kill did not take" >&2
+    exit 1
+  fi
+fi
 # Eviction starts at ~40s (NotReady) + 30s (toleration).
 # Wait until 75s after the stop, then apply the taint.
 ELAPSED=$(( $(date +%s) - T0 ))
@@ -166,35 +256,5 @@ wait_ready 600
 run_test_job
 echo "case 3: node back, taint removed, row intact"
 
-mkdir -p "$ROOT/evidence"
-python3 - "$EVIDENCE" <<PY
-import json, subprocess, sys
-def out(cmd):
-    try:
-        return subprocess.check_output(cmd, shell=True, text=True).strip()
-    except subprocess.CalledProcessError:
-        return ""
-evidence = {
-    "scope": "kind + in-cluster NFS (NOT PowerScale CSI, NOT OneFS)",
-    "kubernetes": out("$KUBECTL version --short 2>/dev/null | head -1"),
-    "kind": out("kind version 2>/dev/null"),
-    "cases": {
-        "drain_graceful": {
-            "ready_seconds": $CASE1_DRAIN_READY,
-            "serving_seconds": $CASE1_DRAIN_SERVING,
-        },
-        "hard_stop_no_intervention": {
-            "stalled": "$CASE2_STALLED" == "true",
-            "observed_seconds": 240,
-        },
-        "hard_stop_out_of_service_taint": {
-            "ready_seconds": $CASE3_TAINT_READY,
-            "serving_seconds": $CASE3_TAINT_SERVING,
-        },
-    },
-}
-with open(sys.argv[1], "w") as f:
-    json.dump(evidence, f, indent=2)
-print(open(sys.argv[1]).read())
-PY
-echo "evidence written to $EVIDENCE"
+COMPLETED="true"
+# Evidence is written by the EXIT trap.
