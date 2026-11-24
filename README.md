@@ -102,6 +102,16 @@ from `.github/workflows/node-failure-drill.yml`, which runs
 the three cases (drain / hard-stop stall / hard-stop +
 out-of-service taint) on kind + NFS — not from the
 PowerScale path, which has no live cluster run yet.
+Measured 24 Nov 2026 (run 45339015253, kind v0.31.0,
+evidence in `evidence/node-failure-drill.json`):
+drain recovered in 2s to Ready / 5s to serving queries;
+hard stop with no intervention stalled (pod Running,
+not Ready, after 240s) and recovered in place when
+the node restarted; hard stop + out-of-service taint
+recovered in 195s to Ready / 198s to serving, most of
+it the node sitting in Unknown while the NotReady
+flag lagged — the taint itself recovered the pod in
+~15s once applied.
 
 ## What is in here
 

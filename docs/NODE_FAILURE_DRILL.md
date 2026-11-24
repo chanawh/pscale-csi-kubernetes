@@ -90,6 +90,24 @@ Results land in `evidence/node-failure-drill.json` and
 as a workflow artifact. Scope: kind + NFS only. This
 does not exercise the PowerScale CSI driver or OneFS.
 
+## Measured results (24 Nov 2026, run 45339015253, kind v0.31.0)
+
+| Case | Measured |
+|---|---|
+| 1. Drain (graceful) | Ready in 2s, serving queries in 5s (drain start to serving). An earlier run measured 6s / 10s. |
+| 2. Hard stop, no intervention | Stalled as predicted: pod Running, not Ready, after 240s. Recovered in place when the node restarted, row intact. |
+| 3. Hard stop + out-of-service taint | Ready in 195s, serving in 198s (kill to serving). Most of that was the node sitting in `Unknown` — after a hard kill the node goes Unknown (no heartbeat within the 40s grace) and may never report `False`, so the wait burned 180s before the container-state fallback applied the taint. The taint itself recovered the pod in ~15s once applied. |
+
+Two earlier runs died in the harness, not the product:
+run 45333538587 (`docker stop` failed on the runner;
+fixed with `docker kill` in v1.1.4) and run 45336965561
+(the NotReady wait timed out silently at 90s; fixed
+with logging, a 180s timeout, and the container-state
+fallback in v1.1.5). The run's overall conclusion was
+failure only because the post-job kind teardown failed
+to remove a node container — the drill itself and the
+evidence upload both succeeded.
+
 ## EKS equivalent
 
 The same three cases run on the one-day EKS run

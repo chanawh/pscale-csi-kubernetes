@@ -86,13 +86,18 @@ wait_ready() {
 # Logs each poll: the 24 Nov 2026 run (45336965561)
 # died silently here when the node had not flipped
 # within 90s, and the log gave no clue why.
+# Accepts Unknown as well as False: after a hard
+# kill the node goes Unknown (no heartbeat within
+# the 40s grace) and may never report False — run
+# 45339015253 sat in Unknown for 135s+ before the
+# container-state fallback fired.
 wait_notready() {
   local node="$1" timeout="$2" waited=0
   while [ "$waited" -lt "$timeout" ]; do
     local ready
     ready=$($KUBECTL get node "$node" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "?")
     echo "wait_notready: node $node Ready=$ready (${waited}s/${timeout}s)"
-    [ "$ready" = "False" ] && return 0
+    [ "$ready" = "False" ] || [ "$ready" = "Unknown" ] && return 0
     sleep 5; waited=$((waited + 5))
   done
   return 1
@@ -136,7 +141,7 @@ def boolean(name):
     return {"true": True, "false": False}.get(v)
 evidence = {
     "scope": "kind + in-cluster NFS (NOT PowerScale CSI, NOT OneFS)",
-    "kubernetes": out("$KUBECTL version --short 2>/dev/null | head -1"),
+    "kubernetes": out("$KUBECTL version 2>/dev/null | head -1"),
     "kind": out("kind version 2>/dev/null"),
     "completed": os.environ.get("COMPLETED") == "true",
     "error": os.environ.get("LAST_ERROR") or None,

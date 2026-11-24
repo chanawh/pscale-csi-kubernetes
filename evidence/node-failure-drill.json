@@ -1,0 +1,21 @@
+{
+  "scope": "kind + in-cluster NFS (NOT PowerScale CSI, NOT OneFS)",
+  "kubernetes": "",
+  "kind": "kind v0.31.0 go1.25.5 linux/amd64",
+  "completed": true,
+  "error": null,
+  "cases": {
+    "drain_graceful": {
+      "ready_seconds": 2,
+      "serving_seconds": 5
+    },
+    "hard_stop_no_intervention": {
+      "stalled": true,
+      "observed_seconds": 240
+    },
+    "hard_stop_out_of_service_taint": {
+      "ready_seconds": 195,
+      "serving_seconds": 198
+    }
+  }
+}

@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.1.6, 2026-11-24
+
+Measured node-failure numbers, at last. Run
+45339015253 (kind v0.31.0) completed all three
+cases: drain Ready 2s / serving 5s (earlier run:
+6s / 10s); hard stop with no intervention stalled
+as predicted (pod Running, not Ready, after 240s)
+and recovered in place on node restart, row
+intact; hard stop + out-of-service taint Ready
+195s / serving 198s. Most of the 198s was the node
+sitting in Unknown — after a hard kill a node goes
+Unknown, not False, so the wait burned 180s before
+the container-state fallback applied the taint; the
+taint itself recovered the pod in ~15s. Evidence
+committed at `evidence/node-failure-drill.json`.
+`wait_notready` now accepts Unknown as well as
+False. The run's overall conclusion was failure
+only because the post-job kind teardown could not
+remove a node container — drill and evidence
+upload both succeeded. Tests still 20/20.
+
 ## v1.1.5, 2026-11-24
 
 Second drill run (45336965561) got further, then
