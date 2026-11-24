@@ -26,6 +26,21 @@ spec:
       labels:
         app: postgres
     spec:
+      # Eviction tolerations tuned for the node-failure drill:
+      # Kubernetes waits tolerationSeconds before evicting pods
+      # from a node that goes NotReady/Unreachable. The default is
+      # 300s, so an untuned test only measures the default. 30s
+      # makes recovery ~10x faster; set it here, not by editing
+      # the cluster, so the timing is reproducible.
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 30
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 30
       containers:
         - name: postgres
           image: postgres:16

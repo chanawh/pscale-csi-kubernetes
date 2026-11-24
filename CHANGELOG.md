@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.1.2, 2026-11-23
+
+Tuned node-failure drill: 30s eviction tolerations
+(`node.kubernetes.io/not-ready` and `node.kubernetes.io/unreachable`,
+NoExecute) on both Postgres StatefulSets (kind/PowerScale and
+EKS/EBS) so the drill measures a tuned recovery instead of the
+300s Kubernetes default; `scripts/drills/node_failure.sh` now
+times docker-stop to pod-Ready and to serving queries. Validated
+by 1 new test (20/20 pass). Live drill not yet run from this
+build environment (no container networking in the VM); runs on
+kind with the OneFS Simulator or on the EKS one-day run.
+
 ## v1.1.1, 2026-11-22
 
 Monitoring as code: `monitoring/grafana/csi-storage-dashboard.json`
@@ -9,7 +21,7 @@ CSI controller pods, snapshot readiness) and
 `monitoring/prometheus/csi-alerts.yaml` (PrometheusRule, 5
 alerts: PVC pending, PVC over 85% full, Postgres not ready,
 CSI controller down, snapshot not ready). Validated by 2 new
-tests (19/19 pass). Built as code, not yet applied to a live
+tests (20/20 pass). Built as code, not yet applied to a live
 cluster from this build environment; loads with the
 observability stack on the EKS one-day run.
 

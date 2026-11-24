@@ -202,6 +202,14 @@ class TestEksUpgrade(unittest.TestCase):
             self.assertTrue(r["expr"].strip())
             self.assertIn("severity", r["labels"])
 
+    def test_postgres_tolerations_tuned(self):
+        for path in ("k8s/postgres-statefulset.yaml", "k8s/eks/postgres-statefulset-ebs.yaml"):
+            docs = load_all(ROOT / path)
+            sts = [d for d in docs if d.get("kind") == "StatefulSet"][0]
+            tol = {x["key"]: x["tolerationSeconds"] for x in sts["spec"]["template"]["spec"]["tolerations"]}
+            self.assertEqual(tol["node.kubernetes.io/not-ready"], 30)
+            self.assertEqual(tol["node.kubernetes.io/unreachable"], 30)
+
     def test_eks_scripts_exist(self):
         for name in ("deploy_eks.sh", "run_eks_demo.sh", "destroy_eks.sh"):
             script = ROOT / "scripts" / "eks" / name
