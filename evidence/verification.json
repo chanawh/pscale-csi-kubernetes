@@ -1,10 +1,1 @@
-{
-  "helm_template": "dell/csi-isilon 2.18.1 renders 18 objects, csi-isilon.dellemc.com present; kube-prometheus-stack with observability values renders 113 objects",
-  "not_run_live_here": "kind (no Docker in VM), driver installs, Postgres, drills, any EKS apply (no AWS account in VM) - kind runs on your machine with OneFS Simulator and in CI dry-run; EKS is a one-day operator run destroyed same day, see docs/REAL_EKS_ONE_DAY.md",
-  "project": "pscale-csi-kubernetes",
-  "python_tests": "17/17 pass (9 PowerScale + 8 EKS upgrade)",
-  "scripts": "bash -n clean, including scripts/eks/deploy_eks.sh, run_eks_demo.sh, destroy_eks.sh",
-  "terraform": "fmt clean, validate clean (EKS cluster, node group, EBS/EFS CSI addons, Pod Identity, EFS, KMS, gated enable_eks=false)",
-  "verified": "2026-11-21",
-  "version": "v1.1.0 (EKS upgrade)"
-}
+{"guard_live_logic_test":"guard run against fake kubectl/docker binaries: dry-run logged would-taint for the stopped node and skip-ready for the healthy node; live mode issued exactly the taint + marker annotate calls for the dead node. One real bug found and fixed by this test (KindChecker read node['name'] instead of metadata.name).","helm_template":"dell/csi-isilon 2.18.1 renders 18 objects, csi-isilon.dellemc.com present; kube-prometheus-stack with observability values renders 113 objects","not_run_live_here":"kind (no Docker in VM), driver installs, Postgres, drills, guard live taint timing, CNPG failover, FIS AZ game day, cross-region DR, any EKS apply (no AWS account in VM) - kind runs on your machine with OneFS Simulator and in CI dry-run/manual drill dispatch; EKS is a one-day operator run destroyed same day, see docs/REAL_EKS_ONE_DAY.md","project":"pscale-csi-kubernetes","python_tests":"40/40 pass (9 PowerScale + 8 EKS upgrade + 2 monitoring + 1 tolerations + 15 guard + 5 ceiling)","scripts":"bash -n clean, including scripts/eks/, scripts/drills/guard_chaos_test.sh, scripts/eks/dr_region_restore.sh","terraform":"fmt clean, validate clean, both roots (EKS cluster, node group, EBS/EFS CSI addons, Pod Identity, EFS, KMS, gated enable_eks=false; FIS AZ-loss module with SSM Resilience Hub document)","verified":"2026-11-24","version":"v1.2.0 (ceiling: guard + comparisons + FIS + DR + SLOs + IaC scanning)"}

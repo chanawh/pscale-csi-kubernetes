@@ -1,0 +1,45 @@
+# Node-down guard, in-cluster deployment (EKS).
+# The guard is a stateless CronJob: every 2 minutes it reads every
+# node's Ready condition and its lastTransitionTime from the API.
+# It taints only when the node has been unreachable for 180s AND
+# the EC2 API reports the instance stopped/terminated AND no
+# maintenance annotation is set. See docs/GUARD_DESIGN.md.
+# kind runs use the script directly (guard/node_guard.py with
+# --client kubectl --checker kind): the in-cluster pod has no
+# docker socket, so the kind checker cannot run here.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: node-guard
+  namespace: csi-demo
+spec:
+  schedule: "*/2 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: node-guard
+          restartPolicy: Never
+          containers:
+            - name: node-guard
+              image: python:3.12-slim
+              command:
+                - python3
+                - /guard/node_guard.py
+                - --client
+                - api
+                - --checker
+                - aws
+                - --unreachable-seconds
+                - "180"
+              volumeMounts:
+                - name: guard-script
+                  mountPath: /guard
+          volumes:
+            - name: guard-script
+              configMap:
+                name: node-guard-script
+                defaultMode: 0755

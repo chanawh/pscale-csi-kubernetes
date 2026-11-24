@@ -36,16 +36,21 @@ Professional, CKA, Terraform Associate, RHCE, CCNA.
    the node-drain drill. Resume bullets count only after
    clean verifies there.
 8. Save evidence from those runs. Evidence beats claims.
+9. Ceiling work (v1.2.0, built but unrun): guard live
+   taint timing in CI, CNPG failover timing, FIS AZ game
+   day, cross-region DR restore — each needs a real
+   cluster or AWS account; runbooks in `docs/`. No
+   resume bullet until the evidence file exists.
 
 ## Phase 3, use it to get interviews
 
-9. STAR bullet from `docs/INTERVIEW_GUIDE.md` on the resume,
-   labelled lab/emulator until Phase 2 is done.
-10. Rehearse the 30-second pitch and the ten Q&As out loud, timed.
-11. Apply to Cloud Support Engineer, Cloud Operations,
+10. STAR bullet from `docs/INTERVIEW_GUIDE.md` on the resume,
+    labelled lab/emulator until Phase 2 is done.
+11. Rehearse the 30-second pitch and the ten Q&As out loud, timed.
+12. Apply to Cloud Support Engineer, Cloud Operations,
     Storage and Platform Engineer first, SRE second.
     No mass-applying, no third project.
-12. AZ-104 in parallel, the cert gate for Azure-titled roles.
+13. AZ-104 in parallel, the cert gate for Azure-titled roles.
 
 ## What not to do
 

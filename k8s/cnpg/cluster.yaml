@@ -1,0 +1,22 @@
+# CloudNativePG cluster for the HA comparison (docs/CNPG_COMPARISON.md).
+# 2 instances: primary + standby, native streaming replication.
+# storageClassName nfs is the kind + NFS run; for the EKS run change
+# it to ebs-gp3. No imageName: the operator supplies its default
+# Postgres image. The database and owner match the StatefulSet
+# drill (csi_demo / postgres) so the same test row is comparable.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-cnpg
+  namespace: csi-demo
+spec:
+  instances: 2
+  storage:
+    size: 10Gi
+    storageClass: nfs
+  bootstrap:
+    initdb:
+      database: csi_demo
+      owner: postgres
+      secret:
+        name: postgres-secret

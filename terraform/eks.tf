@@ -27,12 +27,32 @@ data "aws_subnets" "default" {
 
 # KMS key for EKS secrets encryption (envelope encryption of
 # Kubernetes Secrets in etcd). Lab key: destroyed with the
-# cluster, deletion window is the minimum 7 days.
+# cluster, deletion window is the minimum 7 days. The explicit
+# key policy is the AWS default (root account full access);
+# EKS accesses the key through grants, not the key policy.
+# The policy is written out because checkov (CKV2_AWS_64)
+# requires a defined key policy.
+data "aws_caller_identity" "current" {}
+
+data "aws_iam_policy_document" "eks_secrets_key" {
+  statement {
+    sid    = "Enable IAM User Permissions"
+    effect = "Allow"
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+    actions   = ["kms:*"]
+    resources = ["*"]
+  }
+}
+
 resource "aws_kms_key" "eks_secrets" {
   count                   = var.enable_eks ? 1 : 0
   description             = "${var.cluster_name} EKS secrets encryption (lab, one-day run)"
   deletion_window_in_days = 7
   enable_key_rotation     = true
+  policy                  = data.aws_iam_policy_document.eks_secrets_key.json
 }
 
 resource "aws_iam_role" "eks_cluster" {

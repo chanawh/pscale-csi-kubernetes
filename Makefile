@@ -4,7 +4,7 @@
 .PHONY: help test fmt validate helm cluster demo eks-deploy eks-demo eks-destroy clean
 
 help:
-	@echo "make test      run the 17 manifest/Terraform tests"
+	@echo "make test      run the 40 manifest/Terraform/guard tests"
 	@echo "make fmt       check Terraform formatting"
 	@echo "make validate  validate Terraform"
 	@echo "make helm      render the Dell CSI driver with project values"
@@ -20,9 +20,11 @@ test:
 
 fmt:
 	cd terraform && terraform fmt -check
+	cd terraform/fis && terraform fmt -check
 
 validate:
 	cd terraform && terraform init -backend=false -input=false && terraform validate
+	cd terraform/fis && terraform init -backend=false -input=false && terraform validate
 
 helm:
 	helm repo add dell https://dell.github.io/helm-charts
@@ -45,4 +47,4 @@ eks-destroy:
 	bash scripts/eks/destroy_eks.sh
 
 clean:
-	rm -rf terraform/.terraform terraform/.terraform.lock.hcl python/tests/__pycache__
+	rm -rf terraform/.terraform terraform/.terraform.lock.hcl terraform/fis/.terraform terraform/fis/.terraform.lock.hcl python/tests/__pycache__ guard/__pycache__

@@ -46,6 +46,11 @@ jobs:
             --namespace nfs-provisioner --create-namespace
           kubectl wait --for=condition=ready pod -l app=nfs-server-provisioner -n nfs-provisioner --timeout=300s
           kubectl get storageclass nfs
+      - name: Guard false-positive test (dry-run on healthy cluster)
+        # The guard's dangerous failure is tainting a live node.
+        # Dry-run it against the healthy cluster and assert it
+        # decides nothing. Runs before the drill stops any node.
+        run: bash scripts/drills/guard_chaos_test.sh
       - name: Run the three-case drill
         run: bash scripts/drills/node_failure_ci.sh
       - name: Upload evidence

@@ -28,6 +28,9 @@ jobs:
           curl -sL -o /tmp/helm.tar.gz https://get.helm.sh/helm-v3.16.2-linux-amd64.tar.gz
           tar -xzf /tmp/helm.tar.gz -C /tmp
           sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
+          curl -sL -o /tmp/tflint.zip https://github.com/terraform-linters/tflint/releases/download/v0.52.0/tflint_linux_amd64.zip
+          unzip -o -q /tmp/tflint.zip -d /tmp tflint
+          sudo mv /tmp/tflint /usr/local/bin/tflint
       - name: Python manifest tests
         run: python -m unittest discover -s python/tests -v
       - name: Terraform fmt and validate
@@ -36,6 +39,33 @@ jobs:
           terraform init -backend=false -input=false
           terraform fmt -check
           terraform validate
+      - name: Terraform validate (FIS module)
+        run: |
+          cd terraform/fis
+          terraform init -backend=false -input=false
+          terraform fmt -check
+          terraform validate
+      - name: IaC scanning (tflint core rules + checkov)
+        # tflint with no plugin: core rules only (required
+        # version/providers, unused declarations, deprecated
+        # syntax). No --init, nothing to download. checkov
+        # covers the AWS rules. The three --skip-check entries
+        # fire only on the two KMS key policies
+        # (aws_iam_policy_document.eks_secrets_key and
+        # .fis_logs_key), where Resource "*" is required by
+        # AWS — a key policy attaches to its own key. They
+        # are skipped globally because checkov does not honor
+        # inline skip comments on data blocks (verified
+        # locally); no other policy in the repo trips them.
+        run: |
+          cd terraform
+          tflint --format compact
+          cd fis
+          tflint --format compact
+          cd ../..
+          pip install -q checkov
+          checkov -d terraform --framework terraform --quiet \
+            --skip-check CKV_AWS_109,CKV_AWS_111,CKV_AWS_356
       - name: Helm template the driver
         run: |
           helm repo add dell https://dell.github.io/helm-charts
@@ -60,5 +90,9 @@ jobs:
           kubectl wait --for=condition=Established crd/volumesnapshots.snapshot.storage.k8s.io --timeout=60s
       - name: kubectl dry-run the manifests
         run: |
-          for f in k8s/*.yaml k8s/eks/*.yaml; do kubectl create --dry-run=client -f "$f" > /dev/null; done
+          for f in k8s/*.yaml k8s/eks/*.yaml k8s/guard/*.yaml; do kubectl create --dry-run=client -f "$f" > /dev/null; done
           echo "all manifests apply clean against a real API server"
+          # k8s/cnpg/ is deliberately NOT dry-run here: the CNPG
+          # Cluster CRD is not installed in CI kind, so the API
+          # server cannot recognise the kind. The manifest is
+          # parsed by the Python tests instead.

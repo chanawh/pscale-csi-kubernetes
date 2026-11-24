@@ -195,19 +195,31 @@ class TestEksUpgrade(unittest.TestCase):
     def test_grafana_dashboard(self):
         dash = json.loads((ROOT / "monitoring" / "grafana" / "csi-storage-dashboard.json").read_text())
         self.assertEqual(dash["uid"], "csi-storage")
-        self.assertEqual(len(dash["panels"]), 8)
+        self.assertEqual(len(dash["panels"]), 10)
         for panel in dash["panels"]:
             self.assertTrue(panel["targets"][0]["expr"].strip())
+        # v1.2.0: availability panels backing the burn-rate alerts.
+        titles = [p["title"] for p in dash["panels"]]
+        self.assertIn("Postgres availability (5m avg)", titles)
+        self.assertIn("Postgres availability (1h avg)", titles)
 
     def test_prometheus_alerts(self):
         docs = list(yaml.safe_load_all((ROOT / "monitoring" / "prometheus" / "csi-alerts.yaml").read_text()))
         rule = docs[0]
         self.assertEqual(rule["kind"], "PrometheusRule")
         rules = rule["spec"]["groups"][0]["rules"]
-        self.assertEqual(len(rules), 5)
+        self.assertEqual(len(rules), 7)
         for r in rules:
             self.assertTrue(r["expr"].strip())
             self.assertIn("severity", r["labels"])
+        # v1.2.0: multi-window burn-rate alerts on the Ready SLI.
+        names = [r["alert"] for r in rules]
+        self.assertIn("PostgresAvailabilityBurnFast", names)
+        self.assertIn("PostgresAvailabilityBurnSlow", names)
+        for r in rules:
+            if r["alert"].startswith("PostgresAvailabilityBurn"):
+                self.assertIn("avg_over_time", r["expr"])
+                self.assertIn("kube_pod_status_ready", r["expr"])
 
     def test_postgres_tolerations_tuned(self):
         for path in ("k8s/postgres-statefulset.yaml", "k8s/eks/postgres-statefulset-ebs.yaml"):
@@ -233,6 +245,72 @@ class TestEksUpgrade(unittest.TestCase):
         destroy = (ROOT / "scripts" / "eks" / "destroy_eks.sh").read_text()
         delete_at = destroy.index("delete namespace csi-demo")
         self.assertLess(delete_at, destroy.index("terraform destroy", delete_at))
+
+
+class TestCeilingV120(unittest.TestCase):
+    """Ceiling v1.2.0: guard, CNPG, FIS, DR, SLOs, IaC scanning.
+
+    Everything here is code/docs validated without a cluster or
+    AWS account. Live timings are pending by design; the tests
+    assert the artifacts exist, parse, and say what they claim.
+    """
+
+    def test_cnpg_cluster_manifest(self):
+        docs = load_all(ROOT / "k8s" / "cnpg" / "cluster.yaml")
+        cluster = [d for d in docs if d["kind"] == "Cluster"][0]
+        self.assertEqual(cluster["spec"]["instances"], 2)
+        self.assertEqual(cluster["spec"]["storage"]["size"], "10Gi")
+        # kind + NFS run first; EKS swaps this to ebs-gp3.
+        self.assertEqual(cluster["spec"]["storage"]["storageClass"], "nfs")
+        self.assertEqual(cluster["spec"]["bootstrap"]["initdb"]["database"], "csi_demo")
+
+    def test_fis_module(self):
+        fis = ROOT / "terraform" / "fis"
+        for name in ("versions.tf", "variables.tf", "main.tf", "outputs.tf"):
+            self.assertTrue((fis / name).exists(), name)
+        main = (fis / "main.tf").read_text()
+        # The named AZ-loss scenario (EKS Workshop route).
+        self.assertIn("AWSResilienceHub-SimulateAzOutageInAsgTest_2020-07-23", main)
+        self.assertIn("aws:ssm:start-automation-execution", main)
+        self.assertIn("aws_fis_experiment_template", main)
+        self.assertIn("stop_condition", main)
+        self.assertIn("log_schema_version", main)
+        diy = json.loads((fis / "templates" / "diy-az-loss.json").read_text())
+        self.assertIn("aws:network:disrupt-connectivity",
+                      diy["actions"]["blockAzNetwork"]["actionId"])
+        self.assertIn("aws:ec2:stop-instances",
+                      diy["actions"]["stopAzInstances"]["actionId"])
+
+    def test_dr_script(self):
+        script = ROOT / "scripts" / "eks" / "dr_region_restore.sh"
+        self.assertTrue(script.exists())
+        text = script.read_text()
+        self.assertTrue(text.startswith("#!/usr/bin/env bash"))
+        self.assertIn("set -euo pipefail", text)
+        self.assertIn("copy-snapshot", text)
+        self.assertIn("create-volume", text)
+        self.assertIn("dr-region.json", text)
+        self.assertIn("rpo_seconds", text)
+        self.assertIn("rto_seconds", text)
+
+    def test_ceiling_docs_exist(self):
+        for name in ("GUARD_DESIGN.md", "MEDIK8S_COMPARISON.md",
+                     "CNPG_COMPARISON.md", "FIS_AZ_GAMEDAY.md",
+                     "DR_REGION.md", "COST.md",
+                     "adr/0007-node-down-guard.md"):
+            self.assertTrue((ROOT / "docs" / name).exists(), name)
+        # No ceiling bracket may leak into the README: every
+        # number there must already be measured.
+        readme = (ROOT / "README.md").read_text()
+        self.assertNotIn("[N]", readme)
+        self.assertNotIn("[X", readme)
+
+    def test_ci_has_iac_scanning(self):
+        ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        self.assertIn("checkov", ci)
+        self.assertIn("tflint", ci)
+        drill = (ROOT / ".github" / "workflows" / "node-failure-drill.yml").read_text()
+        self.assertIn("guard_chaos_test.sh", drill)
 
 
 if __name__ == "__main__":

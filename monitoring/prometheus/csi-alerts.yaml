@@ -49,3 +49,26 @@ spec:
           annotations:
             summary: "Volume snapshot not ready in csi-demo"
             description: "A VolumeSnapshot has not reached readyToUse in 10 minutes. Check the snapshot controller and the CSI driver logs."
+        # Multi-window burn-rate alerts on the availability SLI
+        # (Postgres pod Ready). SLO: 99.9% availability over 30
+        # days, about 43 minutes of downtime a month for a single
+        # replica. The fast window fires on a hard failure within
+        # minutes; the slow window fires on repeated short
+        # outages. Both are validated by tests only — no live
+        # cluster has fired them yet.
+        - alert: PostgresAvailabilityBurnFast
+          expr: avg_over_time(kube_pod_status_ready{namespace="csi-demo", pod=~"postgres.*"}[5m]) < 0.95
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Postgres availability burning fast"
+            description: "Postgres has been unavailable more than 5% of the last 5 minutes (SLO 99.9%). A hard node failure looks like this until the out-of-service taint or the guard recovers it."
+        - alert: PostgresAvailabilityBurnSlow
+          expr: avg_over_time(kube_pod_status_ready{namespace="csi-demo", pod=~"postgres.*"}[1h]) < 0.99
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Postgres availability burning slowly"
+            description: "Postgres has been unavailable more than 1% of the last hour (SLO 99.9%). Repeated short outages, not one hard failure."

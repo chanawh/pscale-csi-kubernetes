@@ -1,5 +1,38 @@
 # Changelog
 
+## v1.2.0, 2026-11-24
+
+Ceiling version. What is real, and what is only written:
+
+**Real (tested here).** The node-down guard
+(`guard/node_guard.py`, ~350 lines stdlib Python): applies
+the out-of-service taint only when the node has been
+unreachable 180s AND a second source confirms the instance
+is down (docker for kind, EC2 API for EKS) AND no
+maintenance annotation is set; dry-run, JSON-lines audit,
+auto-removal of its own taint, never touches a human
+taint. 15 unit tests (fake client/checker) + a live run
+against fake kubectl/docker that caught a real bug
+(KindChecker read node['name']). CronJob + RBAC +
+generated ConfigMap in `k8s/guard/`; false-positive chaos
+test wired into the drill workflow. SLOs: 2 multi-window
+burn-rate alerts + 2 dashboard panels (10 panels, 7
+alerts). IaC scanning in CI (tflint core rules + checkov,
+58 passed / 0 failed; 3 checks skipped with reasons —
+KMS key policies require Resource "*"). Checkov triage
+fixed 3 real findings (FIS log group KMS + 365d retention,
+explicit policies on both KMS keys). FIS module
+(`terraform/fis/`, SSM Resilience Hub document, DIY JSON
+alternative) validates clean. Tests 40/40.
+
+**Written, unrun.** Guard live taint timing (needs a CI
+drill run where the guard applies the taint); CNPG
+failover timing (runbook + 2-replica manifest, needs a
+cluster); FIS AZ game day and cross-region DR restore
+(runbooks + scripts, need EKS). No number from any of
+these appears in the README — the reviewer-path table
+lists them as pending. EKS one-day run still pending.
+
 ## v1.1.8, 2026-11-24
 
 Answer the open stall question. Run 45336965561

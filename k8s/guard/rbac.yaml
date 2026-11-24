@@ -1,0 +1,33 @@
+# RBAC for the node-down guard. Least privilege for what the
+# guard does: read nodes, patch node taints and annotations.
+# Patch on nodes is the dangerous permission here: it is what
+# lets the guard apply the out-of-service taint. It is scoped
+# to nodes only, and the guard only ever patches the taint and
+# its own marker annotation (csi-guard/tainted-by).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: node-guard
+  namespace: csi-demo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: node-guard
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: node-guard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: node-guard
+subjects:
+  - kind: ServiceAccount
+    name: node-guard
+    namespace: csi-demo
