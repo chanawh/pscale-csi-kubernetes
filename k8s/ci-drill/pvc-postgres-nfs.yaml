@@ -1,0 +1,25 @@
+# The claim for the CI node-failure drill. Same shape as
+# k8s/pvc-postgres.yaml (10 GiB, ReadWriteMany, name
+# postgres-data, which the StatefulSet references), but on the
+# "nfs" class from the in-cluster NFS provisioner instead of
+# the PowerScale class.
+#
+# Why NFS, not kind's default local-path class: local-path
+# volumes are files on one node and cannot move to another,
+# so a rescheduled pod could never reattach. NFS is network
+# storage, so the pod can remount the same volume on the
+# surviving worker. That is what makes the three drill cases
+# meaningful. Scope: this measures kind + NFS only. It does
+# NOT exercise the PowerScale CSI driver or OneFS.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: csi-demo
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs
+  resources:
+    requests:
+      storage: 10Gi

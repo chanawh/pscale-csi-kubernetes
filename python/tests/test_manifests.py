@@ -53,6 +53,13 @@ class TestManifests(unittest.TestCase):
         self.assertIn("ReadWriteMany", pvc["spec"]["accessModes"])
         size = pvc["spec"]["resources"]["requests"]["storage"]
         self.assertEqual(size, "10Gi")  # driver minimum is 3Gi
+        # The CI drill claim is the same shape on the NFS class,
+        # so a rescheduled pod can reattach on another node.
+        nfs = by_kind(load_all(ROOT / "k8s" / "ci-drill" / "pvc-postgres-nfs.yaml"), "PersistentVolumeClaim")[0]
+        self.assertEqual(nfs["metadata"]["name"], "postgres-data")
+        self.assertEqual(nfs["spec"]["storageClassName"], "nfs")
+        self.assertIn("ReadWriteMany", nfs["spec"]["accessModes"])
+        self.assertEqual(nfs["spec"]["resources"]["requests"]["storage"], "10Gi")
 
     def test_statefulset_uses_pvc(self):
         docs = load_all(ROOT / "k8s" / "postgres-statefulset.yaml")

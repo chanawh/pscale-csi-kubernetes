@@ -85,7 +85,7 @@ Storage and Platform Engineer.
 | NFS exports on OneFS | CSI node plugin mounts NFS exports on every worker; EFS access points on EKS |
 | SmartQuotas | Driver sets a quota per volume, expansion grows it in place; EBS expansion via resizer on EKS |
 | PowerScale snapshots | CSI VolumeSnapshot, restore PVC, clone PVC; EBS snapshot/restore on EKS |
-| Node failure on a cluster | kind drill (`docker stop`) and EKS drill (`kubectl drain`, timed): pod reschedules, volume follows, data survives |
+| Node failure on a cluster | kind drill: drain (graceful reschedule, timed) and hard stop recovered with the out-of-service taint; a hard stop alone stalls a StatefulSet pod in Terminating — see `docs/NODE_FAILURE_DRILL.md`. CI runs the three cases on kind + NFS (`.github/workflows/node-failure-drill.yml`) |
 | OneFS Platform API | CSI controller creates directories, exports, quotas through the API |
 | CKA, Kubernetes operations | kind cluster, Helm installs, StorageClasses, StatefulSet, CI dry-run in a real cluster |
 | AWS Solutions Architect Professional | EKS cluster + node group in Terraform, EBS/EFS CSI addons, Pod Identity least-privilege roles, KMS secrets encryption, CloudWatch control-plane logs |
@@ -94,10 +94,14 @@ Storage and Platform Engineer.
 **For hiring managers and interviewers:** start at
 `docs/INTERVIEW_GUIDE.md`. It has the STAR bullets, the
 30-second pitch, and the questions you will be asked, with
-answers. CI runs on every push: 19 manifest/Terraform/monitoring
+answers. CI runs on every push: 20 manifest/Terraform/monitoring
 tests, Terraform fmt/validate, Helm template, and a real
 kind cluster where the manifests are applied dry-run, see
-`.github/workflows/ci.yml`.
+`.github/workflows/ci.yml`. The node-failure numbers come
+from `.github/workflows/node-failure-drill.yml`, which runs
+the three cases (drain / hard-stop stall / hard-stop +
+out-of-service taint) on kind + NFS — not from the
+PowerScale path, which has no live cluster run yet.
 
 ## What is in here
 
@@ -156,14 +160,16 @@ PowerScale path (kind):
 1. **Snapshot and restore.** `scripts/drills/snapshot_restore.sh` snapshots the Postgres PVC, restores a new PVC from it, and proves the test row is back.
 2. **Clone.** `scripts/drills/clone.sh` creates a second, independent PVC from the original, for testing without touching it.
 3. **Expand.** `scripts/drills/expand.sh` grows the PVC from 10 to 20 GiB in place, no recreate, because `allowVolumeExpansion: true` is set on the StorageClass.
-4. **Node failure.** `scripts/drills/node_failure.sh` stops the kind node running Postgres with `docker stop`, waits for the pod to reschedule on the other worker, and proves the row survived.
+4. **Node failure.** `scripts/drills/node_failure.sh` stops the kind node running Postgres with `docker stop`, waits for NotReady and eviction start, applies the out-of-service taint (a hard stop alone stalls the StatefulSet pod in Terminating — see `docs/NODE_FAILURE_DRILL.md`), then times the pod rescheduling on the other worker and proves the row survived. The same three cases run in CI on kind + NFS (`scripts/drills/node_failure_ci.sh`, `.github/workflows/node-failure-drill.yml`).
 
 EKS path (`scripts/eks/run_eks_demo.sh`): write the row,
 EBS snapshot and restore, expand 10 to 20 GiB, then
-`kubectl drain` the Postgres node and time how long the
-pod takes to be Ready on the surviving node. That measured
-number replaces any estimate. The row must read back after
-every step, same as on PowerScale.
+`kubectl drain` (graceful — the kubelet is alive) the
+Postgres node and time how long the pod takes to be Ready
+on the surviving node. That measured drain number replaces
+any estimate for graceful rescheduling; it is not a hard
+failure number. The row must read back after every step,
+same as on PowerScale.
 
 ## Verified live
 

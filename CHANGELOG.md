@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.1.3, 2026-11-23
+
+Node-failure correction. A hard stop does NOT reschedule
+a StatefulSet pod on its own: the pod stays Terminating
+on the dead node (at-most-one), so the old drill script,
+README, and kind-config comment all overstated it. The
+local drill (`scripts/drills/node_failure.sh`) now
+applies the out-of-service taint after NotReady +
+eviction start and times recovery from the docker stop.
+New three-case CI drill (`scripts/drills/node_failure_ci.sh`,
+`.github/workflows/node-failure-drill.yml`, manual run):
+drain (graceful), hard stop with no intervention
+(expected stall), hard stop + out-of-service taint
+(timed), on kind + in-cluster NFS provisioner, results
+in `evidence/node-failure-drill.json`. New
+`docs/NODE_FAILURE_DRILL.md` (Terminating trap, 40s
+detection + 30s toleration = eviction starts ~70s,
+taint GA 1.28, force-delete split-brain risk and the
+6-minute force-detach timeout, drain vs failure, EKS
+equivalent with the EBS AZ note). No live cluster run
+yet anywhere: no drain and no hard kill has run, on
+kind or EKS. Tests still 20/20 (NFS PVC covered in
+test_pvc).
+
 ## v1.1.2, 2026-11-23
 
 Tuned node-failure drill: 30s eviction tolerations
