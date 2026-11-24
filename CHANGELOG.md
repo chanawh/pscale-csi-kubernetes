@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.1.7, 2026-11-24
+
+PowerScale-path drill, ready to run. The CI numbers are
+kind + NFS; the PowerScale measurement needs a live kind
+cluster against the OneFS Simulator, which only exists
+on Andrew's machine. Two changes make that run
+one-command: `scripts/drills/node_failure.sh` now writes
+`evidence/node-failure-powerscale.json` (Ready/serving
+seconds, nodes, row verified), and its NotReady wait
+accepts `Unknown` as well as `False` (the CI lesson from
+run 45339015253). New `docs/POWERSCALE_DRILL_RUNBOOK.md`
+is the ordered machine runbook (simulator → OneFS setup
+→ kind → driver → full demo → evidence → teardown),
+cross-referencing the existing docs instead of
+reprinting them. Tests still 20/20.
+
 ## v1.1.6, 2026-11-24
 
 Measured node-failure numbers, at last. Run

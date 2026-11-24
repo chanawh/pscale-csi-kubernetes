@@ -40,7 +40,13 @@ docker kill "$NODE"
 # Wait for the node to report NotReady (up to 90s), then
 # until ~75s after the stop (eviction starts at ~40s
 # detection + 30s toleration), then apply the taint.
-while [ "$(kubectl get node "$NODE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')" != "False" ]; do
+# A hard-killed node reports Unknown (no heartbeat
+# within the 40s grace), not False — accept either.
+# (CI run 45339015253 sat in Unknown for 135s+ before
+# the container-state fallback fired.)
+while true; do
+  STATUS=$(kubectl get node "$NODE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "?")
+  [ "$STATUS" = "False" ] || [ "$STATUS" = "Unknown" ] && break
   sleep 5
   [ $(( $(date +%s) - T0 )) -ge 90 ] && break
 done
@@ -60,6 +66,23 @@ kubectl -n csi-demo logs job/csi-test-write
 T2=$(date +%s)
 echo "Pod recovery: $((T2 - T0)) seconds (docker kill to serving queries)"
 echo "node failure: pod moved from $NODE to $NEW_NODE, data survived"
+EVIDENCE="$ROOT/evidence/node-failure-powerscale.json"
+mkdir -p "$ROOT/evidence"
+cat > "$EVIDENCE" <<EOF
+{
+  "scope": "kind + PowerScale CSI driver on OneFS Simulator (NOT EKS, NOT real OneFS)",
+  "cases": {
+    "hard_stop_out_of_service_taint": {
+      "ready_seconds": $((T1 - T0)),
+      "serving_seconds": $((T2 - T0))
+    }
+  },
+  "pod_moved_from": "$NODE",
+  "pod_moved_to": "$NEW_NODE",
+  "row_verified": true
+}
+EOF
+echo "evidence written to $EVIDENCE"
 echo "Restart the stopped node, then remove the taint:"
 echo "  docker start $NODE"
 echo "  kubectl taint nodes $NODE node.kubernetes.io/out-of-service=nodeshutdown:NoExecute-"

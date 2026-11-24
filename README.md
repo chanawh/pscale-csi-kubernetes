@@ -170,7 +170,7 @@ PowerScale path (kind):
 1. **Snapshot and restore.** `scripts/drills/snapshot_restore.sh` snapshots the Postgres PVC, restores a new PVC from it, and proves the test row is back.
 2. **Clone.** `scripts/drills/clone.sh` creates a second, independent PVC from the original, for testing without touching it.
 3. **Expand.** `scripts/drills/expand.sh` grows the PVC from 10 to 20 GiB in place, no recreate, because `allowVolumeExpansion: true` is set on the StorageClass.
-4. **Node failure.** `scripts/drills/node_failure.sh` stops the kind node running Postgres with `docker kill`, waits for NotReady and eviction start, applies the out-of-service taint (a hard stop alone stalls the StatefulSet pod in Terminating — see `docs/NODE_FAILURE_DRILL.md`), then times the pod rescheduling on the other worker and proves the row survived. The same three cases run in CI on kind + NFS (`scripts/drills/node_failure_ci.sh`, `.github/workflows/node-failure-drill.yml`).
+4. **Node failure.** `scripts/drills/node_failure.sh` stops the kind node running Postgres with `docker kill`, waits for NotReady and eviction start, applies the out-of-service taint (a hard stop alone stalls the StatefulSet pod in Terminating — see `docs/NODE_FAILURE_DRILL.md`), then times the pod rescheduling on the other worker and proves the row survived. The same three cases run in CI on kind + NFS (`scripts/drills/node_failure_ci.sh`, `.github/workflows/node-failure-drill.yml`). The PowerScale path runs on your machine only — see `docs/POWERSCALE_DRILL_RUNBOOK.md`.
 
 EKS path (`scripts/eks/run_eks_demo.sh`): write the row,
 EBS snapshot and restore, expand 10 to 20 GiB, then
