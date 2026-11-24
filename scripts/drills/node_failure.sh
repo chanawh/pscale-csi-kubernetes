@@ -20,7 +20,7 @@
 # verifying the node is really down, and remove it after
 # the node is restarted.
 #
-# Timing: T0 is the docker stop. Recovery is measured to
+# Timing: T0 is the docker kill. Recovery is measured to
 # the pod being Ready AND serving a query (pg_isready via
 # the test job), not just to the pod existing. Pass: a new
 # Postgres pod is Ready on a different node, the test job
@@ -34,9 +34,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 NODE=$(kubectl -n csi-demo get pod -l app=postgres -o jsonpath='{.items[0].spec.nodeName}')
 echo "Postgres is on node: $NODE"
-echo "Stopping kind node $NODE (docker stop $NODE)..."
+echo "Stopping kind node $NODE (docker kill $NODE)..."
 T0=$(date +%s)
-docker stop "$NODE"
+docker kill "$NODE"
 # Wait for the node to report NotReady (up to 90s), then
 # until ~75s after the stop (eviction starts at ~40s
 # detection + 30s toleration), then apply the taint.
@@ -50,7 +50,7 @@ echo "Node $NODE is NotReady; applying out-of-service taint..."
 kubectl taint nodes "$NODE" node.kubernetes.io/out-of-service=nodeshutdown:NoExecute
 kubectl -n csi-demo wait --for=condition=ready pod -l app=postgres --timeout=300s
 T1=$(date +%s)
-echo "Pod recovery: $((T1 - T0)) seconds (docker stop to Ready)"
+echo "Pod recovery: $((T1 - T0)) seconds (docker kill to Ready)"
 NEW_NODE=$(kubectl -n csi-demo get pod -l app=postgres -o jsonpath='{.items[0].spec.nodeName}')
 echo "Postgres rescheduled on node: $NEW_NODE"
 kubectl delete job csi-test-write -n csi-demo --ignore-not-found
@@ -58,7 +58,7 @@ kubectl apply -f "$ROOT/k8s/test-job.yaml"
 kubectl -n csi-demo wait --for=condition=complete job/csi-test-write --timeout=180s
 kubectl -n csi-demo logs job/csi-test-write
 T2=$(date +%s)
-echo "Pod recovery: $((T2 - T0)) seconds (docker stop to serving queries)"
+echo "Pod recovery: $((T2 - T0)) seconds (docker kill to serving queries)"
 echo "node failure: pod moved from $NODE to $NEW_NODE, data survived"
 echo "Restart the stopped node, then remove the taint:"
 echo "  docker start $NODE"

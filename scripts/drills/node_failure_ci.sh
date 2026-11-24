@@ -6,7 +6,7 @@
 #   1. Drain: graceful. The kubelet is alive, so the pod
 #      terminates cleanly and the StatefulSet reschedules it.
 #      This measures graceful rescheduling, NOT failure.
-#   2. Hard stop, no intervention: docker stop the node
+#   2. Hard stop, no intervention: docker kill the node
 #      running Postgres, then watch. Expected result: STALL.
 #      The pod stays Terminating on the dead node, because
 #      the kubelet that would confirm deletion is gone, and
@@ -15,7 +15,7 @@
 #      A stall here is documented behavior, not a failure
 #      of the drill. After the stall is recorded, the node
 #      is started again and the pod recovers in place.
-#   3. Hard stop + out-of-service taint: docker stop, wait
+#   3. Hard stop + out-of-service taint: docker kill, wait
 #      for NotReady (~40s default grace) and eviction start
 #      (~40s + 30s toleration), then apply
 #      node.kubernetes.io/out-of-service=nodeshutdown:NoExecute
@@ -23,7 +23,7 @@
 #      The taint force-deletes the pod and detaches its
 #      volume immediately, so the StatefulSet can create the
 #      replacement on the surviving worker. Recovery is
-#      timed from the docker stop to Ready and to serving
+#      timed from the docker kill to Ready and to serving
 #      queries. The node is then restarted and the taint
 #      removed.
 #
@@ -33,6 +33,15 @@
 # .github/workflows/node-failure-drill.yml on GitHub
 # runners (which have Docker); it cannot run in this
 # build VM, which has no container networking.
+#
+# The node is killed with `docker kill`, not `docker stop`:
+# on the first Actions run (24 Nov 2026, run 45333538587)
+# `docker stop` failed with "tried to kill container, but
+# did not receive an exit event" — the daemon could not
+# stop the kind node container. SIGKILL is also the more
+# faithful hard failure: a power cut, not a graceful
+# shutdown. That first run still measured case 1 (drain):
+# Ready in 6s, serving in 10s.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 NS=csi-demo
@@ -107,7 +116,7 @@ echo "== case 2: hard stop, no intervention (expect stall) =="
 NODE=$(pod_node)
 echo "Postgres is on node: $NODE"
 T0=$(date +%s)
-docker stop "$NODE" >/dev/null
+docker kill "$NODE" >/dev/null
 # Watch for 240s: past NotReady (~40s) and eviction start
 # (~40s + 30s toleration). The pod should stay Terminating
 # with no Ready replacement.
@@ -135,7 +144,7 @@ echo "== case 3: hard stop + out-of-service taint =="
 NODE=$(pod_node)
 echo "Postgres is on node: $NODE"
 T0=$(date +%s)
-docker stop "$NODE" >/dev/null
+docker kill "$NODE" >/dev/null
 wait_notready "$NODE" 90
 # Eviction starts at ~40s (NotReady) + 30s (toleration).
 # Wait until 75s after the stop, then apply the taint.
@@ -144,10 +153,10 @@ ELAPSED=$(( $(date +%s) - T0 ))
 $KUBECTL taint nodes "$NODE" node.kubernetes.io/out-of-service=nodeshutdown:NoExecute
 wait_ready 300
 T1=$(date +%s); CASE3_TAINT_READY=$((T1 - T0))
-echo "case 3: Ready in $CASE3_TAINT_READY seconds (docker stop to Ready)"
+echo "case 3: Ready in $CASE3_TAINT_READY seconds (docker kill to Ready)"
 run_test_job
 T2=$(date +%s); CASE3_TAINT_SERVING=$((T2 - T0))
-echo "case 3: serving in $CASE3_TAINT_SERVING seconds (docker stop to serving queries)"
+echo "case 3: serving in $CASE3_TAINT_SERVING seconds (docker kill to serving queries)"
 echo "case 3: pod now on $(pod_node)"
 echo "case 3: restarting node $NODE and removing the taint"
 docker start "$NODE" >/dev/null

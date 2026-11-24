@@ -77,13 +77,13 @@ Docker; this build VM does not):
 
 1. **Drain** — graceful rescheduling, timed drain-start
    to Ready and to serving queries.
-2. **Hard stop, no intervention** — `docker stop` the
+2. **Hard stop, no intervention** — `docker kill` the
    node, watch 240s. Expected: stall. The pod stays
    Terminating and no replacement appears. A stall is
    the correct, documented result.
-3. **Hard stop + out-of-service taint** — `docker stop`,
+3. **Hard stop + out-of-service taint** — `docker kill`,
    wait for NotReady and eviction start, apply the
-   taint, time docker-stop to Ready and to serving
+   taint, time docker-kill to Ready and to serving
    queries.
 
 Results land in `evidence/node-failure-drill.json` and
@@ -95,7 +95,7 @@ does not exercise the PowerScale CSI driver or OneFS.
 The same three cases run on the one-day EKS run
 (`scripts/eks/run_eks_demo.sh` currently scripts the
 drain only): terminate the EC2 instance instead of
-`docker stop`. One extra detail there: an EBS volume
+`docker kill`. One extra detail there: an EBS volume
 is tied to one Availability Zone, so a pod rescheduled
 to another AZ cannot attach its volume — the
 replacement must land in the same AZ, or the volume

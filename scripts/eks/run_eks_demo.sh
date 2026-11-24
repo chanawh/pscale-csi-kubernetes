@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # EKS demo, start to finish: write a row -> EBS snapshot ->
 # restore -> expand 10 to 20 GiB -> node drain (the EKS
-# counterpart to docker stop on kind) -> verify the row.
+# counterpart to docker kill on kind) -> verify the row.
 # Times the pod recovery after the drain, so the resume
 # number is measured, not estimated.
 #

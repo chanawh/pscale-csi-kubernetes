@@ -80,7 +80,7 @@ measured."
    The pod is rescheduled on the other worker, the node
    plugin on that worker mounts the same NFS export,
    and Postgres starts with the same data. The drill
-   proves it by stopping the kind node with docker stop.
+   proves it by stopping the kind node with docker kill.
 
 8. Why is SmartQuota on?
    By default the driver does not enforce size. Without

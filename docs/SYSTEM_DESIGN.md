@@ -111,7 +111,7 @@ faster driver.
 | Failure | Detection | Behaviour |
 |---|---|---|
 | Pod dies | Kubernetes reschedules it | Node plugin on the new worker mounts the same NFS export, data is still there |
-| Worker node dies | kind: `docker stop`; EKS: `kubectl drain`, timed | Pod reschedules on the other worker, same volume reattached; EKS drill prints measured recovery seconds |
+| Worker node dies | kind: `docker kill`; EKS: `kubectl drain`, timed | Pod reschedules on the other worker, same volume reattached; EKS drill prints measured recovery seconds |
 | Volume fills up | SmartQuota, if enabled | Writes fail at the quota, not when OneFS fills. Without quotas, nothing stops it |
 | OneFS unreachable | Driver probe on start, node labels missing | Controller pods fail to probe, PVCs stay Pending, never silently mount the wrong storage |
 | Snapshot class IsiPath mismatched | Snapshot stays not readyToUse | Restore PVC cannot be created; fix the class, do not force it |

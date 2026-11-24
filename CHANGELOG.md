@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.1.4, 2026-11-24
+
+First drill run, first fix. Run 45333538587 (24 Nov
+2026) measured case 1 (drain): Ready in 6s, serving
+in 10s, pod moved to the other worker, row intact.
+Cases 2–3 never ran: `docker stop` on the kind node
+container failed on the runner ("tried to kill
+container, but did not receive an exit event"), so the
+script died under `set -e` before writing evidence.
+Both drill scripts now use `docker kill` (SIGKILL):
+the daemon cannot hang on it, and a kill is the more
+faithful hard failure — a power cut, not a graceful
+shutdown. Docs updated to match. Tests still 20/20.
+
 ## v1.1.3, 2026-11-23
 
 Node-failure correction. A hard stop does NOT reschedule
