@@ -103,3 +103,56 @@ for the PowerScale half. The point is that the same
 workload ran against a real EKS API with AWS CSI
 drivers, not just kind, and the recovery number is
 measured, not estimated.
+
+## Ceiling measurements on EKS (v1.2.0)
+
+The four ceiling items all ride on this same cluster.
+Do them after the demo above, the same day or a second
+day, then destroy with step 4. None of them has run
+anywhere yet; each has its own doc and evidence file.
+
+1. **Guard live timing.** The guard is the node-down
+   automation (`docs/GUARD_DESIGN.md`, `guard/node_guard.py`).
+   Deploy it, then stop a worker instance and let the
+   guard recover the pod unattended:
+
+   ```sh
+   kubectl apply -f k8s/guard/   # RBAC, script ConfigMap, CronJob (every 2 min)
+   aws ec2 stop-instances --instance-ids <worker-instance-id>
+   ```
+
+   The guard taints only when all three hold: the node
+   unreachable for 180s from `lastTransitionTime`, the
+   EC2 API confirming the instance stopped or terminated,
+   and no `csi-guard/maintenance: "true"` annotation.
+   Its audit log is one JSON object per line on the
+   CronJob pod's stdout. Record: time from instance stop
+   to the `taint` audit line to pod Ready to serving
+   queries. Save the audit lines plus those times as
+   `evidence/guard-live.json`. If the guard refuses, the
+   refusal reason in the audit log is the result — a
+   refused taint is a safe outcome, not a failed run.
+
+2. **FIS Availability Zone game day.**
+   `docs/FIS_AZ_GAMEDAY.md` is the runbook (the scenario
+   name is verified there: FIS calling the SSM document
+   `AWSResilienceHub-SimulateAzOutageInAsgTest_2020-07-23`
+   against the node-group ASG). Apply the module first
+   (`terraform/fis/`, same account and region), then
+   follow the doc. Evidence:
+   `evidence/dr-az-gameday.json`. FIS bills
+   $0.10/action-minute.
+
+3. **Cross-region DR restore.** `docs/DR_REGION.md`
+   plus `bash scripts/eks/dr_region_restore.sh` (snapshot
+   copy to region B, restore, verify the row). Evidence:
+   `evidence/dr-region.json` with measured RPO/RTO.
+
+4. **CloudNativePG failover.** `docs/CNPG_COMPARISON.md`
+   (install the operator, then `k8s/cnpg/cluster.yaml`,
+   kill a node, time the failover against the
+   StatefulSet + guard number from item 1).
+
+Destroy with `bash scripts/eks/destroy_eks.sh` when all
+four are done — it deletes the demo namespace first,
+which also removes the guard.
