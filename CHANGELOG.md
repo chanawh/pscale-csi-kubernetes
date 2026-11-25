@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.2.3, 2026-11-24
+
+PowerScale-path drill upgraded to the three cases.
+`scripts/drills/node_failure.sh` was a single-case script
+(hard stop + taint only); it now runs the same three cases
+as the CI drill — drain, hard-stop stall (240s, with
+deletionTimestamp/tolerations/node-taints recorded), hard
+stop + out-of-service taint — on the PowerScale volume,
+with the EXIT-trap evidence writer (partial evidence on
+failure) and a safety check that refuses to run unless
+the PVC is on the `powerscale` StorageClass, so the
+PowerScale evidence can never be measured on NFS by
+mistake. Evidence to `evidence/node-failure-powerscale.json`
+(scope, kind/kubernetes versions, storage class,
+provisioner csi-isilon.dellemc.com, volume handle, OneFS
+endpoint, the three cases). `docs/POWERSCALE_DRILL_RUNBOOK.md`
+updated to match. Written, not run: it runs on Andrew's
+machine only (kind + OneFS Simulator), not in CI or the
+build VM. Tests 40/40; the script is bash -n clean and
+its evidence writer was tested in the VM with sample
+values.
+
 ## v1.2.2, 2026-11-24
 
 CNPG failover drill, written not run. `scripts/drills/cnpg_failover_ci.sh`

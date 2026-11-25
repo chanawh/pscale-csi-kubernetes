@@ -1,88 +1,309 @@
 #!/usr/bin/env bash
-# Drill 4: node failure (hard stop), timed, with the
-# out-of-service taint as the recovery step.
+# Node-failure drill, PowerScale path (your machine only).
 #
-# A hard stop is NOT a drain. When the node dies, the
-# Postgres StatefulSet pod stays Terminating on it: the
-# kubelet that would confirm deletion is gone, and the
-# StatefulSet will not create a replacement with the same
-# name while the old pod exists. Waiting alone never
-# recovers it. The 30s eviction tolerations only control
-# when eviction *begins* (~40s NotReady detection + 30s).
+# Three cases, one Postgres StatefulSet, Postgres on the
+# `powerscale` claim (k8s/pvc-postgres.yaml, Dell csi-isilon
+# driver on the OneFS Simulator). The same three cases as
+# the CI drill (scripts/drills/node_failure_ci.sh, kind +
+# in-cluster NFS), but the volume is a real PowerScale
+# volume provisioned by the driver — so this measures the
+# storage path, not just Kubernetes:
+#   1. Drain: graceful. The kubelet is alive, so the pod
+#      terminates cleanly and the StatefulSet reschedules
+#      it; the PowerScale volume detaches and reattaches.
+#      This measures graceful rescheduling, NOT failure.
+#   2. Hard stop, no intervention: docker kill the node
+#      running Postgres, then watch. Expected result: STALL.
+#      The pod stays Terminating on the dead node, because
+#      the kubelet that would confirm deletion is gone, and
+#      the StatefulSet will not create a replacement with
+#      the same name while the old pod exists (at-most-one).
+#      The PowerScale volume stays attached to the dead
+#      node. A stall here is documented behavior, not a
+#      failure of the drill. After the stall is recorded,
+#      the node is started again and the pod recovers in
+#      place.
+#   3. Hard stop + out-of-service taint: docker kill, wait
+#      for NotReady (~40s default grace) and eviction start
+#      (~40s + 30s toleration), then apply
+#      node.kubernetes.io/out-of-service=nodeshutdown:NoExecute
+#      (Non-Graceful Node Shutdown, GA since Kubernetes 1.28).
+#      The taint force-deletes the pod and detaches its
+#      PowerScale volume immediately, so the StatefulSet can
+#      create the replacement on the surviving worker with
+#      the same volume reattached. Recovery is timed from
+#      the docker kill to Ready and to serving queries. The
+#      node is then restarted and the taint removed.
 #
-# Recovery needs the out-of-service taint (Non-Graceful
-# Node Shutdown, GA since Kubernetes 1.28):
-#   kubectl taint nodes <node> node.kubernetes.io/out-of-service=nodeshutdown:NoExecute
-# The taint force-deletes the pod and detaches its volume
-# immediately, so the StatefulSet can create the
-# replacement on the surviving worker with the same
-# PowerScale volume reattached. Only apply it after
-# verifying the node is really down, and remove it after
-# the node is restarted.
+# Scope: kind + PowerScale CSI driver on the OneFS
+# Simulator (NOT EKS, NOT real OneFS). Results go to
+# evidence/node-failure-powerscale.json. Run by
+# scripts/run_demo.sh, or standalone after deploying
+# Postgres on the powerscale class (see
+# docs/POWERSCALE_DRILL_RUNBOOK.md). It cannot run in CI
+# (no OneFS there) or in the build VM (no container
+# networking); it runs on your machine only.
 #
-# Timing: T0 is the docker kill. Recovery is measured to
-# the pod being Ready AND serving a query (pg_isready via
-# the test job), not just to the pod existing. Pass: a new
-# Postgres pod is Ready on a different node, the test job
-# reads the row back, and the script prints
-# "Pod recovery: N seconds".
-# See docs/NODE_FAILURE_DRILL.md for the full mechanics,
-# and scripts/drills/node_failure_ci.sh for the three-case
-# version (drain / hard stop stall / hard stop + taint)
-# that runs in GitHub Actions on kind + NFS.
+# The node is killed with `docker kill`, not `docker stop`:
+# on the first Actions run (24 Nov 2026, run 45333538587)
+# `docker stop` failed with "tried to kill container, but
+# did not receive an exit event" — the daemon could not
+# stop the kind node container. SIGKILL is also the more
+# faithful hard failure: a power cut, not a graceful
+# shutdown.
+#
+# Safety: the script refuses to run unless the Postgres
+# PVC is on the `powerscale` StorageClass. Measuring the
+# PowerScale path on an NFS volume would write PowerScale
+# evidence for a kind+NFS run, so the check fails fast
+# instead of silently mislabelling the result.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-NODE=$(kubectl -n csi-demo get pod -l app=postgres -o jsonpath='{.items[0].spec.nodeName}')
+NS=csi-demo
+EVIDENCE="$ROOT/evidence/node-failure-powerscale.json"
+
+KUBECTL="${KUBECTL:-kubectl}"
+
+pod_node() {
+  $KUBECTL -n "$NS" get pod -l app=postgres -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null || true
+}
+
+pod_phase() {
+  $KUBECTL -n "$NS" get pod -l app=postgres -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "gone"
+}
+
+pod_ready() {
+  $KUBECTL -n "$NS" get pod -l app=postgres -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False"
+}
+
+# Run the test job and fail unless the row reads back.
+run_test_job() {
+  $KUBECTL delete job csi-test-write -n "$NS" --ignore-not-found >/dev/null
+  $KUBECTL apply -f "$ROOT/k8s/test-job.yaml" >/dev/null
+  $KUBECTL -n "$NS" wait --for=condition=complete job/csi-test-write --timeout=180s >/dev/null
+  $KUBECTL -n "$NS" logs job/csi-test-write
+}
+
+# Wait until the pod is Ready, or time out (returns 1).
+wait_ready() {
+  local timeout="$1"
+  $KUBECTL -n "$NS" wait --for=condition=ready pod -l app=postgres --timeout="${timeout}s" >/dev/null 2>&1
+}
+
+# Wait until the node reports NotReady, or time out.
+# Logs each poll: the 24 Nov 2026 CI run (45336965561)
+# died silently here when the node had not flipped
+# within 90s, and the log gave no clue why.
+# Accepts Unknown as well as False: after a hard
+# kill the node goes Unknown (no heartbeat within
+# the 40s grace) and may never report False — CI run
+# 45339015253 sat in Unknown for 135s+ before the
+# container-state fallback fired.
+wait_notready() {
+  local node="$1" timeout="$2" waited=0
+  while [ "$waited" -lt "$timeout" ]; do
+    local ready
+    ready=$($KUBECTL get node "$node" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "?")
+    echo "wait_notready: node $node Ready=$ready (${waited}s/${timeout}s)"
+    [ "$ready" = "False" ] || [ "$ready" = "Unknown" ] && return 0
+    sleep 5; waited=$((waited + 5))
+  done
+  return 1
+}
+
+# True when the kind node container is actually
+# stopped. The NotReady flag can lag the kill by
+# more than the 40s grace (API slowness after a
+# node restart); the container state is the ground
+# truth about whether the kubelet is dead.
+node_container_dead() {
+  [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = "false" ]
+}
+
+# Evidence is written on EXIT, not just at the end:
+# the first two CI Actions runs died mid-drill (docker
+# stop failure, then a NotReady timeout) and took
+# their measured cases down with them. Partial
+# evidence plus the failing command is worth more
+# than no artifact.
+COMPLETED="false"
+LAST_ERROR=""
+trap 'LAST_ERROR="$BASH_COMMAND (exit $?)"' ERR
+write_evidence() {
+  mkdir -p "$ROOT/evidence"
+  CASE1_DRAIN_READY="$CASE1_DRAIN_READY" CASE1_DRAIN_SERVING="$CASE1_DRAIN_SERVING" \
+  CASE2_STALLED="$CASE2_STALLED" CASE3_TAINT_READY="$CASE3_TAINT_READY" \
+  CASE3_TAINT_SERVING="$CASE3_TAINT_SERVING" COMPLETED="$COMPLETED" \
+  CASE2_DELETION_TS="$CASE2_DELETION_TS" CASE2_TOLERATIONS="$CASE2_TOLERATIONS" \
+  CASE2_NODE_TAINTS="$CASE2_NODE_TAINTS" \
+  STORAGE_CLASS="$STORAGE_CLASS" PROVISIONER="$PROVISIONER" \
+  VOLUME_HANDLE="$VOLUME_HANDLE" ONEFS_ENDPOINT="$ONEFS_ENDPOINT" \
+  LAST_ERROR="$LAST_ERROR" python3 - "$EVIDENCE" <<PY
+import json, os, subprocess, sys
+def out(cmd):
+    try:
+        return subprocess.check_output(cmd, shell=True, text=True).strip()
+    except subprocess.CalledProcessError:
+        return ""
+def num(name):
+    v = os.environ.get(name, "")
+    return int(v) if v not in ("", "null") else None
+def boolean(name):
+    v = os.environ.get(name, "")
+    return {"true": True, "false": False}.get(v)
+evidence = {
+    "scope": "kind + PowerScale CSI driver on OneFS Simulator (NOT EKS, NOT real OneFS)",
+    "kubernetes": out("$KUBECTL version 2>/dev/null | head -1"),
+    "kind": out("kind version 2>/dev/null"),
+    "storage_class": os.environ.get("STORAGE_CLASS") or None,
+    "provisioner": os.environ.get("PROVISIONER") or None,
+    "volume_handle": os.environ.get("VOLUME_HANDLE") or None,
+    "onefs_endpoint": os.environ.get("ONEFS_ENDPOINT") or None,
+    "completed": os.environ.get("COMPLETED") == "true",
+    "error": os.environ.get("LAST_ERROR") or None,
+    "cases": {
+        "drain_graceful": {
+            "ready_seconds": num("CASE1_DRAIN_READY"),
+            "serving_seconds": num("CASE1_DRAIN_SERVING"),
+        },
+        "hard_stop_no_intervention": {
+            "stalled": boolean("CASE2_STALLED"),
+            "observed_seconds": 240,
+            "deletion_timestamp": os.environ.get("CASE2_DELETION_TS") or None,
+            "tolerations": os.environ.get("CASE2_TOLERATIONS") or None,
+            "node_taints": os.environ.get("CASE2_NODE_TAINTS") or None,
+        },
+        "hard_stop_out_of_service_taint": {
+            "ready_seconds": num("CASE3_TAINT_READY"),
+            "serving_seconds": num("CASE3_TAINT_SERVING"),
+        },
+    },
+}
+with open(sys.argv[1], "w") as f:
+    json.dump(evidence, f, indent=2)
+print(open(sys.argv[1]).read())
+PY
+  echo "evidence written to $EVIDENCE"
+}
+trap write_evidence EXIT
+
+echo "== setup: verify Postgres is on the powerscale class =="
+STORAGE_CLASS=$($KUBECTL -n "$NS" get pvc postgres-data -o jsonpath='{.spec.storageClassName}' 2>/dev/null || echo "")
+if [ "$STORAGE_CLASS" != "powerscale" ]; then
+  echo "Refusing to run: PVC postgres-data is on StorageClass '${STORAGE_CLASS:-none}', not 'powerscale'." >&2
+  echo "Deploy Postgres on the powerscale class first (bash scripts/run_demo.sh, or the drill-alone" >&2
+  echo "commands in docs/POWERSCALE_DRILL_RUNBOOK.md). Measuring the PowerScale path on an NFS volume" >&2
+  echo "would write PowerScale evidence for a kind+NFS run." >&2
+  exit 1
+fi
+PROVISIONER=$($KUBECTL get storageclass powerscale -o jsonpath='{.provisioner}' 2>/dev/null || echo "")
+PV_NAME=$($KUBECTL -n "$NS" get pvc postgres-data -o jsonpath='{.spec.volumeName}' 2>/dev/null || echo "")
+VOLUME_HANDLE=$($KUBECTL get pv "$PV_NAME" -o jsonpath='{.spec.csi.volumeHandle}' 2>/dev/null || echo "")
+ONEFS_ENDPOINT=$($KUBECTL -n csi-isilon get secret isilon-creds -o jsonpath='{.data.config}' 2>/dev/null | base64 -d 2>/dev/null | grep -m1 'endpoint:' | awk '{print $2}' | tr -d '"' || echo "")
+echo "setup: StorageClass $STORAGE_CLASS (provisioner ${PROVISIONER:-unknown}), volume ${VOLUME_HANDLE:-unknown}, OneFS ${ONEFS_ENDPOINT:-unknown}"
+wait_ready 600
+run_test_job
+echo "setup: Postgres Ready on PowerScale, row written"
+
+CASE1_DRAIN_READY=""; CASE1_DRAIN_SERVING=""
+CASE2_STALLED=""; CASE2_DELETION_TS=""; CASE2_TOLERATIONS=""; CASE2_NODE_TAINTS=""; CASE3_TAINT_READY=""; CASE3_TAINT_SERVING=""
+
+echo "== case 1: drain (graceful) =="
+NODE=$(pod_node)
 echo "Postgres is on node: $NODE"
-echo "Stopping kind node $NODE (docker kill $NODE)..."
 T0=$(date +%s)
-docker kill "$NODE"
-# Wait for the node to report NotReady (up to 90s), then
-# until ~75s after the stop (eviction starts at ~40s
-# detection + 30s toleration), then apply the taint.
-# A hard-killed node reports Unknown (no heartbeat
-# within the 40s grace), not False — accept either.
-# (CI run 45339015253 sat in Unknown for 135s+ before
-# the container-state fallback fired.)
-while true; do
-  STATUS=$(kubectl get node "$NODE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "?")
-  [ "$STATUS" = "False" ] || [ "$STATUS" = "Unknown" ] && break
-  sleep 5
-  [ $(( $(date +%s) - T0 )) -ge 90 ] && break
-done
+$KUBECTL drain "$NODE" --ignore-daemonsets --delete-emptydir-data --timeout=300s >/dev/null
+wait_ready 300
+T1=$(date +%s); CASE1_DRAIN_READY=$((T1 - T0))
+echo "case 1: Ready in $CASE1_DRAIN_READY seconds (drain start to Ready)"
+run_test_job
+T2=$(date +%s); CASE1_DRAIN_SERVING=$((T2 - T0))
+echo "case 1: serving in $CASE1_DRAIN_SERVING seconds (drain start to serving queries)"
+$KUBECTL uncordon "$NODE" >/dev/null
+echo "case 1: pod now on $(pod_node)"
+
+echo "== case 2: hard stop, no intervention (expect stall) =="
+NODE=$(pod_node)
+echo "Postgres is on node: $NODE"
+T0=$(date +%s)
+docker kill "$NODE" >/dev/null
+# Watch for 240s: past NotReady (~40s) and eviction start
+# (~40s + 30s toleration). The pod should stay stuck with
+# no Ready replacement. Phase reads Running, not
+# Terminating: phase is kubelet-reported and the dead
+# kubelet never updates it. Whether eviction started is
+# decided by deletionTimestamp, recorded below.
+sleep 240
+# Why is it stuck? Record the evidence that decides
+# whether eviction started: the pod's tolerations and
+# deletionTimestamp (set when eviction deletes it), and
+# the node's taints. CI run 45336965561 showed the pod
+# Running/NotReady with no replacement and no record of
+# whether the 30s tolerations had fired.
+CASE2_DELETION_TS=$($KUBECTL -n "$NS" get pod -l app=postgres -o jsonpath='{.items[0].metadata.deletionTimestamp}' 2>/dev/null || echo "")
+CASE2_TOLERATIONS=$($KUBECTL -n "$NS" get pod -l app=postgres -o jsonpath='{.items[0].spec.tolerations}' 2>/dev/null || echo "")
+CASE2_NODE_TAINTS=$($KUBECTL get node "$NODE" -o jsonpath='{.spec.taints}' 2>/dev/null || echo "")
+echo "case 2: deletionTimestamp=${CASE2_DELETION_TS:-none}"
+echo "case 2: tolerations=${CASE2_TOLERATIONS:-none}"
+echo "case 2: node_taints=${CASE2_NODE_TAINTS:-none}"
+PHASE=$(pod_phase)
+READY=$(pod_ready)
+if [ "$PHASE" = "Running" ] && [ "$READY" = "True" ]; then
+  # A Ready pod here would mean the replacement appeared
+  # without intervention, contradicting StatefulSet
+  # at-most-one. Record it, do not claim a stall.
+  CASE2_STALLED="false"
+  echo "case 2: UNEXPECTED: pod Running+Ready after hard stop with no intervention"
+else
+  CASE2_STALLED="true"
+  echo "case 2: stalled as expected (pod phase $PHASE, Ready $READY after 240s)"
+fi
+echo "case 2: restarting node $NODE"
+docker start "$NODE" >/dev/null
+$KUBECTL wait --for=condition=Ready node/"$NODE" --timeout=300s >/dev/null
+wait_ready 600
+run_test_job
+echo "case 2: pod recovered in place after node restart, row intact"
+
+echo "== case 3: hard stop + out-of-service taint =="
+NODE=$(pod_node)
+echo "Postgres is on node: $NODE"
+T0=$(date +%s)
+docker kill "$NODE" >/dev/null
+# The NotReady flag can lag the kill (the 24 Nov 2026
+# CI run timed out at 90s with the node still reporting
+# Ready). Wait up to 180s, then trust the container
+# state: if the container is stopped, the kubelet is
+# dead regardless of what the flag says, and the taint
+# is safe to apply. If it is still running, fail
+# loudly — the kill did not take.
+if ! wait_notready "$NODE" 180; then
+  if node_container_dead "$NODE"; then
+    echo "case 3: node $NODE still reports Ready after 180s, but its container is stopped — proceeding to the taint"
+  else
+    echo "case 3: node $NODE still Ready after 180s AND its container is still running — docker kill did not take" >&2
+    exit 1
+  fi
+fi
+# Eviction starts at ~40s (NotReady) + 30s (toleration).
+# Wait until 75s after the stop, then apply the taint.
 ELAPSED=$(( $(date +%s) - T0 ))
 [ "$ELAPSED" -lt 75 ] && sleep $((75 - ELAPSED))
-echo "Node $NODE is NotReady; applying out-of-service taint..."
-kubectl taint nodes "$NODE" node.kubernetes.io/out-of-service=nodeshutdown:NoExecute
-kubectl -n csi-demo wait --for=condition=ready pod -l app=postgres --timeout=300s
-T1=$(date +%s)
-echo "Pod recovery: $((T1 - T0)) seconds (docker kill to Ready)"
-NEW_NODE=$(kubectl -n csi-demo get pod -l app=postgres -o jsonpath='{.items[0].spec.nodeName}')
-echo "Postgres rescheduled on node: $NEW_NODE"
-kubectl delete job csi-test-write -n csi-demo --ignore-not-found
-kubectl apply -f "$ROOT/k8s/test-job.yaml"
-kubectl -n csi-demo wait --for=condition=complete job/csi-test-write --timeout=180s
-kubectl -n csi-demo logs job/csi-test-write
-T2=$(date +%s)
-echo "Pod recovery: $((T2 - T0)) seconds (docker kill to serving queries)"
-echo "node failure: pod moved from $NODE to $NEW_NODE, data survived"
-EVIDENCE="$ROOT/evidence/node-failure-powerscale.json"
-mkdir -p "$ROOT/evidence"
-cat > "$EVIDENCE" <<EOF
-{
-  "scope": "kind + PowerScale CSI driver on OneFS Simulator (NOT EKS, NOT real OneFS)",
-  "cases": {
-    "hard_stop_out_of_service_taint": {
-      "ready_seconds": $((T1 - T0)),
-      "serving_seconds": $((T2 - T0))
-    }
-  },
-  "pod_moved_from": "$NODE",
-  "pod_moved_to": "$NEW_NODE",
-  "row_verified": true
-}
-EOF
-echo "evidence written to $EVIDENCE"
-echo "Restart the stopped node, then remove the taint:"
-echo "  docker start $NODE"
-echo "  kubectl taint nodes $NODE node.kubernetes.io/out-of-service=nodeshutdown:NoExecute-"
+$KUBECTL taint nodes "$NODE" node.kubernetes.io/out-of-service=nodeshutdown:NoExecute
+wait_ready 300
+T1=$(date +%s); CASE3_TAINT_READY=$((T1 - T0))
+echo "case 3: Ready in $CASE3_TAINT_READY seconds (docker kill to Ready)"
+run_test_job
+T2=$(date +%s); CASE3_TAINT_SERVING=$((T2 - T0))
+echo "case 3: serving in $CASE3_TAINT_SERVING seconds (docker kill to serving queries)"
+echo "case 3: pod now on $(pod_node)"
+echo "case 3: restarting node $NODE and removing the taint"
+docker start "$NODE" >/dev/null
+$KUBECTL wait --for=condition=Ready node/"$NODE" --timeout=300s >/dev/null
+$KUBECTL taint nodes "$NODE" node.kubernetes.io/out-of-service=nodeshutdown:NoExecute- >/dev/null
+wait_ready 600
+run_test_job
+echo "case 3: node back, taint removed, row intact"
+
+COMPLETED="true"
+# Evidence is written by the EXIT trap.

@@ -41,10 +41,14 @@ bash scripts/run_demo.sh
 This deploys Postgres on the `powerscale` StorageClass, writes
 the row, then runs all four drills in order: snapshot/restore,
 clone, expand 10 to 20 GiB, node failure. The node-failure
-drill kills the worker running Postgres with `docker kill`,
-waits for NotReady (a hard-killed node reports `Unknown`, not
-`False`) and eviction start, applies the out-of-service taint,
-and times the reschedule. Evidence lands in
+drill (`scripts/drills/node_failure.sh`) runs the same three
+cases as the CI drill, but on the PowerScale volume: drain
+(graceful reschedule), hard stop with no intervention
+(expected stall, 240s watched), and hard stop + out-of-service
+taint (timed to Ready and serving). It refuses to run unless
+the Postgres PVC is on the `powerscale` StorageClass, so the
+PowerScale evidence can never be measured on an NFS volume
+by mistake. Evidence lands in
 `evidence/node-failure-powerscale.json` — commit it, it is the
 resume evidence. For the drill alone, deploy Postgres first
 (`kubectl apply -f k8s/postgres-secret.yaml k8s/pvc-postgres.yaml
@@ -53,16 +57,23 @@ then `bash scripts/drills/node_failure.sh`.
 
 ## 4. What to expect
 
-- Drain (CI reference): Ready 2s, serving 5s. The local drill
-  does not time a drain; it times the hard failure.
-- Hard failure + taint (CI reference on NFS): Ready 195s,
-  serving 198s, most of it the node sitting in `Unknown`
+- Drain (case 1, CI reference on NFS): Ready 2s, serving 5s.
+  The PowerScale drill times the same drain on the PowerScale
+  volume — expect the same shape (graceful reschedule, the
+  volume detaches and reattaches).
+- Hard stop, no intervention (case 2): expect a stall, the pod
+  Running/NotReady with no replacement for the full 240s
+  watched — the same as CI run 45336965561 on NFS. The
+  evidence records deletionTimestamp, tolerations, and node
+  taints, which decide whether eviction started.
+- Hard failure + taint (case 3, CI reference on NFS): Ready
+  195s, serving 198s, most of it the node sitting in `Unknown`
   while the flag lagged — the taint itself recovered the pod
   in ~15s once applied. Expect the same shape on PowerScale;
   the number that matters for the resume is the serving
   time.
 - The row `csi-powerscale-proof` must read back after every
-  drill. If it does not, the volume did not reattach and the
+  case. If it does not, the volume did not reattach and the
   run does not count.
 
 ## 5. Teardown
@@ -78,7 +89,8 @@ simulator if you want a clean slate for the next run.
 
 ## 6. Report back
 
-The two numbers (Ready seconds, serving seconds) from
-`evidence/node-failure-powerscale.json`, plus whether the
-snapshot/clone/expand drills passed. Those go on the resume
-and into `docs/NODE_FAILURE_DRILL.md` next to the CI numbers.
+The three cases from `evidence/node-failure-powerscale.json`
+(drain Ready/serving, stall true/false, taint Ready/serving),
+plus whether the snapshot/clone/expand drills passed. Those
+go on the resume and into `docs/NODE_FAILURE_DRILL.md` next
+to the CI numbers.
