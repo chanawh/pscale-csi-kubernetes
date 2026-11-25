@@ -113,15 +113,25 @@ it, for two reasons:
 ## What is still unmeasured
 
 - **Live taint timing by the guard.** The manual taint took
-  ~15s in run 45339015253. The guard's own timing (detect to
-  taint applied, unattended) is unmeasured. Next step: a
-  fourth case in the drill workflow where the guard, not the
-  script, applies the taint after the kill, and the evidence
-  file records the guard's decision timestamps.
+  ~15s in run 45339015253. The guard's own timing is
+  measured by `.github/workflows/guard-live-drill.yml`
+  (`scripts/drills/guard_live_ci.sh`): 3 live-guard timing
+  trials on a 2-minute cadence (the production CronJob
+  cadence) plus 3 refusal trials (a paused node the guard
+  must refuse). Not run yet — it needs a push and a manual
+  dispatch. Expected as built: kill to serving ~240-360s
+  (median ~300s), slower than the manual 198s, because the
+  180s unreachable threshold plus up to 120s of CronJob
+  wait dominate; the guard's value as built is automation
+  plus triple confirmation, not speed. To beat 198s the
+  loop must be shortened (lower threshold and/or tighter
+  schedule) — a design decision, not taken here. The
+  evidence file is `evidence/guard-live.json`.
 - **False-positive rate over time.** The chaos test proves
-  one healthy cluster. A guard that runs every 2 minutes for
-  weeks is a different claim; the audit log is the data for
-  it, and there is none yet.
+  one healthy cluster, and the live drill adds 3 refusal
+  trials on a paused node. A guard that runs every 2
+  minutes for weeks is a different claim; the audit log is
+  the data for it, and there is none yet.
 - **AWS checker.** Written and unit-testable only through the
   fake checker; the real `aws ec2 describe-instances` path
   has never run, because there is no AWS account in this

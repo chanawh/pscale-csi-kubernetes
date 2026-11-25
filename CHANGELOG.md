@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.2.1, 2026-11-24
+
+Guard live drill, written not run. `scripts/drills/guard_live_ci.sh`
++ `.github/workflows/guard-live-drill.yml` (manual dispatch):
+3 live-guard timing trials (guard applies the taint on a
+2-minute cadence matching the production CronJob, offsets
+0/40/80s for phase spread) and 3 refusal trials (docker
+pause: node Unknown, container alive, guard must refuse).
+Evidence to `evidence/guard-live.json` (median serving,
+refusals N of 3, guard config). Expected as built:
+kill to serving ~240-360s, slower than the manual 198s
+(180s threshold + up to 120s CronJob wait); the guard's
+value as built is automation plus triple confirmation,
+not speed. Needs a push and a manual dispatch to run.
+Also: `docs/REAL_EKS_ONE_DAY.md` gained the ceiling
+measurements section (guard live timing, FIS AZ game day,
+cross-region DR, CNPG failover). Tests 40/40; the new
+script is bash -n clean and its evidence writer + audit
+parsing were tested in the VM with sample values. The
+live paths cannot run here (no container networking).
+
 ## v1.2.0, 2026-11-24
 
 Ceiling version. What is real, and what is only written:

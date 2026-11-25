@@ -56,7 +56,8 @@ prove what survives.
 | Hard kill + out-of-service taint | serving in 198s from kill (~15s from taint) | same evidence file |
 | Guard unit tests | 15/15 pass (full decision matrix, fake client) | `python/tests/test_guard.py` |
 | Guard false-positive test | wired into the drill workflow; not run yet (next manual dispatch) | `scripts/drills/guard_chaos_test.sh` |
-| Guard live taint timing | unmeasured — pending a CI run where the guard, not the script, applies the taint | `docs/GUARD_DESIGN.md` |
+| Guard live taint timing | unmeasured — drill built (`.github/workflows/guard-live-drill.yml`), pending push + manual dispatch | `scripts/drills/guard_live_ci.sh`, `evidence/guard-live.json` |
+| Guard refusal trials (live node) | unmeasured — same drill, 3 trials on a paused node the guard must refuse | `scripts/drills/guard_live_ci.sh` |
 | CNPG failover vs StatefulSet + guard | unmeasured — runbook written, pending a CI kind run | `docs/CNPG_COMPARISON.md` |
 | FIS AZ game day, cross-region DR | unrun — Terraform validated, runbooks written, need EKS | `docs/FIS_AZ_GAMEDAY.md`, `docs/DR_REGION.md` |
 | Burn-rate alerts | 2 multi-window alerts + 2 dashboard panels, validated by tests, never fired live | `monitoring/` |

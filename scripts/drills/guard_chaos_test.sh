@@ -12,8 +12,11 @@
 #
 # Requires: python3, kubectl with a context, a healthy cluster.
 # No docker, no AWS, no live mode. The true-positive path (guard
-# applies the taint after a real kill) is not covered here; it is
-# the next CI step, see docs/GUARD_DESIGN.md.
+# applies the taint after a real kill) and the refusal trials
+# (guard refuses a live, paused node) are covered by
+# scripts/drills/guard_live_ci.sh, run by
+# .github/workflows/guard-live-drill.yml; this test is the
+# healthy-cluster half that runs first in the manual drill.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 AUDIT="$(mktemp)"
