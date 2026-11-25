@@ -4,6 +4,11 @@
 # it to ebs-gp3. No imageName: the operator supplies its default
 # Postgres image. The database and owner match the StatefulSet
 # drill (csi_demo / postgres) so the same test row is comparable.
+# The bootstrap secret is k8s/cnpg/secret.yaml, NOT
+# postgres-secret.yaml: CNPG requires a kubernetes.io/basic-auth
+# secret with username/password keys, username matching the
+# owner, and postgres-secret.yaml's keys are POSTGRES_USER and
+# friends. Apply the secret before the cluster.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -19,4 +24,4 @@ spec:
       database: csi_demo
       owner: postgres
       secret:
-        name: postgres-secret
+        name: postgres-cnpg-secret

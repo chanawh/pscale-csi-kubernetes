@@ -1,0 +1,62 @@
+# CNPG failover drill on kind + in-cluster NFS.
+# Manual run only: three failover trials, each killing
+# the node running the CNPG primary and timing promotion
+# to the new primary Ready and to serving queries.
+# Trigger from the Actions tab. The public run log plus
+# the evidence artifact are the verifiable evidence for
+# the Version 2 CNPG number: CNPG failover seconds
+# (median of 3 trials) against the StatefulSet + guard
+# baseline (serving 198s, run 45339015253).
+#
+# No expected time is stated: CNPG promotion time on
+# kind is genuinely unmeasured.
+#
+# Scope: kind + NFS only. This does NOT exercise the
+# PowerScale CSI driver or OneFS. The EKS one-day run
+# covers the same failover against EBS.
+name: cnpg-failover-drill
+
+on:
+  workflow_dispatch:
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install tools
+        run: |
+          curl -sL -o /tmp/helm.tar.gz https://get.helm.sh/helm-v3.16.2-linux-amd64.tar.gz
+          tar -xzf /tmp/helm.tar.gz -C /tmp
+          sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
+      - name: Kind cluster (1 control-plane + 2 workers)
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: pscale-csi
+          config: scripts/kind-config.yaml
+      - name: Install in-cluster NFS provisioner
+        # nfs-server-provisioner runs an NFS server inside
+        # the cluster and provisions the "nfs" StorageClass
+        # the drill PVC uses. NFS, not kind's default
+        # local-path class: a local-path volume cannot move
+        # to another node, so a rescheduled pod could never
+        # reattach. Lab-only: the export is an emptyDir on
+        # the provisioner pod.
+        run: |
+          helm repo add nfs-ganesha https://kubernetes-sigs.github.io/nfs-ganesha-server-and-external-provisioner/
+          helm repo update
+          helm install nfs-provisioner nfs-ganesha/nfs-server-provisioner \
+            --namespace nfs-provisioner --create-namespace
+          kubectl wait --for=condition=ready pod -l app=nfs-server-provisioner -n nfs-provisioner --timeout=300s
+          kubectl get storageclass nfs
+      - name: Run the CNPG failover drill
+        run: bash scripts/drills/cnpg_failover_ci.sh
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cnpg-failover-drill
+          path: evidence/cnpg-failover.json

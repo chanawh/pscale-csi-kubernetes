@@ -58,7 +58,7 @@ prove what survives.
 | Guard false-positive test | wired into the drill workflow; not run yet (next manual dispatch) | `scripts/drills/guard_chaos_test.sh` |
 | Guard live taint timing | unmeasured — drill built (`.github/workflows/guard-live-drill.yml`), pending push + manual dispatch | `scripts/drills/guard_live_ci.sh`, `evidence/guard-live.json` |
 | Guard refusal trials (live node) | unmeasured — same drill, 3 trials on a paused node the guard must refuse | `scripts/drills/guard_live_ci.sh` |
-| CNPG failover vs StatefulSet + guard | unmeasured — runbook written, pending a CI kind run | `docs/CNPG_COMPARISON.md` |
+| CNPG failover vs StatefulSet + guard | unmeasured — drill built (`.github/workflows/cnpg-failover-drill.yml`), pending push + manual dispatch | `docs/CNPG_COMPARISON.md` |
 | FIS AZ game day, cross-region DR | unrun — Terraform validated, runbooks written, need EKS | `docs/FIS_AZ_GAMEDAY.md`, `docs/DR_REGION.md` |
 | Burn-rate alerts | 2 multi-window alerts + 2 dashboard panels, validated by tests, never fired live | `monitoring/` |
 
@@ -155,7 +155,7 @@ flag lagged — the taint itself recovered the pod in
 | `python/tests/` | 40 checks on the manifests, Helm values, Terraform, scripts, monitoring, and the guard, no cluster needed |
 | `guard/` | Node-down guard: stdlib Python, applies the out-of-service taint only when the node is unreachable AND a second source confirms the instance is down AND no maintenance annotation is set; dry-run, JSON-lines audit, auto-removal |
 | `k8s/guard/` | Guard CronJob (every 2 min, in-cluster API client, AWS checker) + RBAC (patch nodes only) + ConfigMap with the script (generated, drift-tested) |
-| `k8s/cnpg/` | CloudNativePG 2-replica Cluster manifest for the HA comparison (kind + NFS first; EKS swaps the class to ebs-gp3) |
+| `k8s/cnpg/` | CloudNativePG 2-replica Cluster manifest + bootstrap secret for the HA comparison (kind + NFS first; EKS swaps the class to ebs-gp3) |
 | `terraform/fis/` | FIS AZ-loss experiment template (SSM Resilience Hub document) + DIY JSON alternative, validated, never applied |
 | `monitoring/` | Grafana dashboard (10 panels) + PrometheusRule (7 alerts, incl. 2 multi-window burn-rate alerts) as code, validated in CI, loaded on the EKS run |
 | `docs/GUARD_DESIGN.md` | Guard decision record: why taint, why not force-delete, the three conditions, what is still unmeasured |

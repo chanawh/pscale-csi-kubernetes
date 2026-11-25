@@ -50,18 +50,32 @@ the row.
 # 1. Install the operator (CNPG 1.30.1)
 kubectl apply --server-side -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v1.30.1/releases/cnpg-1.30.1.yaml
 kubectl wait --for=condition=Available deployment/cnpg-controller-manager -n cnpg-system --timeout=300s
-# 2. Create the 2-replica cluster (k8s/cnpg/cluster.yaml: storageClassName nfs)
+# 2. Create the 2-replica cluster (k8s/cnpg/cluster.yaml: storageClassName nfs).
+# Apply the bootstrap secret first: CNPG requires it to be a
+# kubernetes.io/basic-auth secret with username/password keys,
+# username matching the owner. k8s/postgres-secret.yaml does
+# not qualify (its keys are POSTGRES_USER and friends), so the
+# cluster has its own secret, k8s/cnpg/secret.yaml.
+kubectl apply -f k8s/cnpg/secret.yaml
 kubectl apply -f k8s/cnpg/cluster.yaml
 kubectl wait --for=condition=Ready cluster/postgres-cnpg -n csi-demo --timeout=600s
-# 3. Write the same row the StatefulSet drill uses
-kubectl -n csi-demo run cnpg-write --rm -i --image=postgres:16 -- \
+# 3. Write the same row the StatefulSet drill uses.
+# psql needs the password from the bootstrap secret, and the
+# one-shot pod needs --restart=Never (a plain run would
+# restart the finished container forever).
+PGPASSWORD=$(kubectl -n csi-demo get secret postgres-cnpg-secret -o jsonpath='{.data.password}' | base64 -d)
+kubectl -n csi-demo run cnpg-write --rm -i --restart=Never --image=postgres:16 --env PGPASSWORD="$PGPASSWORD" -- \
   psql -h postgres-cnpg-rw -U postgres -d csi_demo -c \
   "CREATE TABLE IF NOT EXISTS csi_proof (id INT PRIMARY KEY, note TEXT); INSERT INTO csi_proof VALUES (1, 'csi-powerscale-proof') ON CONFLICT (id) DO NOTHING; SELECT * FROM csi_proof;"
-# 4. Kill the node running the primary, time to serving
-PRIMARY_NODE=$(kubectl -n csi-demo get pod -l cnpg.io/cluster=postgres-cnpg,role=primary -o jsonpath='{.items[0].spec.nodeName}')
+# 4. Kill the node running the primary, time to serving.
+# The primary is authoritative from the cluster status,
+# not from a label selector: CNPG's pod labels vary by
+# version, .status.currentPrimary does not.
+PRIMARY=$(kubectl -n csi-demo get cluster postgres-cnpg -o jsonpath='{.status.currentPrimary}')
+PRIMARY_NODE=$(kubectl -n csi-demo get pod "$PRIMARY" -o jsonpath='{.spec.nodeName}')
 T0=$(date +%s); docker kill "$PRIMARY_NODE"
 # 5. Poll the read-write service until the row reads back
-until kubectl -n csi-demo run cnpg-read --rm -i --image=postgres:16 -- \
+until kubectl -n csi-demo run cnpg-read --rm -i --restart=Never --image=postgres:16 --env PGPASSWORD="$PGPASSWORD" -- \
   psql -h postgres-cnpg-rw -U postgres -d csi_demo -tAc "SELECT note FROM csi_proof WHERE id=1;" 2>/dev/null | grep -q csi-powerscale-proof; do sleep 2; done
 echo "CNPG failover to serving: $(( $(date +%s) - T0 ))s"
 # 6. Record: failover seconds, which pod became primary, replication lag at kill (pg_stat_replication), row intact
@@ -93,13 +107,19 @@ pods in one AZ).
   are primary. CNPG fences with its primary update strategy;
   the runbook does not test partition behavior.
 
-## Status: unmeasured
+## Status: drill built, unmeasured
 
-No CNPG run exists yet. The operator has never been
-installed in this repo's clusters, and the failover timing
-is pending a CI kind run (the runbook above is written for
-it) or the EKS one-day run. The StatefulSet numbers it
+The drill exists: `scripts/drills/cnpg_failover_ci.sh`
+(run by `.github/workflows/cnpg-failover-drill.yml`,
+manual dispatch) runs 3 failover trials on kind + NFS,
+records kill to new-primary Ready and to serving per
+trial, and writes the median to
+`evidence/cnpg-failover.json`. It has not run yet — it
+needs a push and a manual dispatch. The number it
+produces is the kind-scoped CNPG failover time; the
+EKS number still needs the one-day EKS run. No CNPG
+number is quoted until the drill has run and the
+evidence is committed. The StatefulSet numbers it
 would be compared against are measured (drill run
-45339015253: drain serving 5s, hard kill + taint serving
-198s from kill). Do not quote a CNPG number until the
-runbook has been executed and the evidence committed.
+45339015253: drain serving 5s, hard kill + taint
+serving 198s from kill).

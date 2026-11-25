@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.2.2, 2026-11-24
+
+CNPG failover drill, written not run. `scripts/drills/cnpg_failover_ci.sh`
++ `.github/workflows/cnpg-failover-drill.yml` (manual dispatch):
+3 failover trials on kind + NFS (docker kill the node
+running the CNPG primary, time kill to new-primary
+Ready and to serving the row, restart the node, require
+the cluster back to Ready with the row intact; a trial
+that does not heal is recorded failed, not hidden).
+Evidence to `evidence/cnpg-failover.json` (median
+serving, per-trial new primary, row intact). No
+expected time is stated: CNPG promotion time on kind
+is genuinely unmeasured. Needs a push and a manual
+dispatch to run. Also fixes a latent bug the drill
+found: the ceiling-written cluster.yaml pointed its
+bootstrap secret at postgres-secret, whose keys are
+POSTGRES_USER and friends — CNPG requires a
+kubernetes.io/basic-auth secret with username/password
+keys, username matching the owner, so the cluster
+would never have created. New `k8s/cnpg/secret.yaml`
+is that secret, and the runbook's psql steps now
+carry PGPASSWORD and --restart=Never. Tests 40/40;
+the new script is bash -n clean and its evidence
+writer was tested in the VM with sample values. The
+live paths cannot run here (no container networking).
+
 ## v1.2.1, 2026-11-24
 
 Guard live drill, written not run. `scripts/drills/guard_live_ci.sh`
