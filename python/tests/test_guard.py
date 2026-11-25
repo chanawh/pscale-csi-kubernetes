@@ -170,7 +170,11 @@ class TestGuardManifests(unittest.TestCase):
         container = job["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]
         self.assertEqual(container["image"], "python:3.12-slim")
         self.assertIn("node_guard.py", " ".join(container["command"]))
-        self.assertIn("aws", container["command"])  # in-cluster checker
+        # The command is a shell wrapper (pip install awscli
+        # first: python:3.12-slim has no AWS CLI), so the
+        # checker is verified in the joined command string,
+        # not as a bare argv element.
+        self.assertIn("aws", " ".join(container["command"]))  # in-cluster checker
         self.assertEqual(
             job["spec"]["jobTemplate"]["spec"]["template"]["spec"]["serviceAccountName"],
             "node-guard")

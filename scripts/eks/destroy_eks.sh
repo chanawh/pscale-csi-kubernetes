@@ -9,6 +9,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 REGION="${AWS_REGION:-us-west-2}"
+CLUSTER="${CLUSTER_NAME:-pscale-csi}"
 
 echo "== Delete workloads and PVCs (releases EBS/EFS volumes) =="
 kubectl delete namespace csi-demo --ignore-not-found --timeout=300s || true
@@ -21,17 +22,20 @@ kubectl delete namespace observability --ignore-not-found --timeout=300s || true
 echo
 echo "== Terraform destroy =="
 cd "$ROOT/terraform"
-terraform destroy -input=false -auto-approve -var="enable_eks=true" -var="region=$REGION"
+terraform destroy -input=false -auto-approve -var="enable_eks=true" -var="region=$REGION" -var="cluster_name=$CLUSTER"
 
 echo
 echo "== Leftover check (should print nothing) =="
 echo "EBS volumes tagged for this cluster:"
 aws ec2 describe-volumes --region "$REGION" \
-  --filters "Name=tag:kubernetes.io/cluster/pscale-csi,Values=owned" \
+  --filters "Name=tag:kubernetes.io/cluster/$CLUSTER,Values=owned" \
   --query 'Volumes[].VolumeId' --output text || true
 echo "EFS filesystems:"
+# EFS describe output has no Name field (the name is a tag);
+# the creation token is "${cluster_name}-efs" (terraform/efs.tf).
 aws efs describe-file-systems --region "$REGION" \
-  --query 'FileSystems[?Name==`pscale-csi-efs`].FileSystemId' --output text || true
+  --creation-token "${CLUSTER}-efs" \
+  --query 'FileSystems[].FileSystemId' --output text || true
 
 echo
 echo "== Done. KMS key deletion is scheduled (7-day window); =="

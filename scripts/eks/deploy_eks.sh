@@ -15,11 +15,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 REGION="${AWS_REGION:-us-west-2}"
 CLUSTER="${CLUSTER_NAME:-pscale-csi}"
+# Node count. Default 2 (the runbook cost table). The driver
+# passes 3 when the AZ check needs a second node in the
+# Postgres volume's AZ (EKS_NODE_DESIRED_SIZE=3); keep this
+# in step with the driver's terraform apply or the re-apply
+# here scales the group back.
+NODE_DESIRED_SIZE="${NODE_DESIRED_SIZE:-2}"
 
 echo "== Terraform: EKS cluster, node group, CSI addons, EFS =="
 cd "$ROOT/terraform"
 terraform init -input=false
-terraform apply -input=false -auto-approve -var="enable_eks=true" -var="region=$REGION"
+terraform apply -input=false -auto-approve -var="enable_eks=true" -var="region=$REGION" -var="cluster_name=$CLUSTER" -var="node_desired_size=$NODE_DESIRED_SIZE"
 
 echo
 echo "== Kubeconfig =="

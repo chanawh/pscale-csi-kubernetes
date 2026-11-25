@@ -251,6 +251,23 @@ resource "aws_eks_addon" "kube_proxy" {
   depends_on = [aws_eks_node_group.main]
 }
 
+# Pod Identity agent: without this addon the Pod Identity
+# associations below are inert — the driver pods get no IAM
+# credentials and the EBS/EFS CSI drivers (and the guard)
+# fail with AccessDenied. The associations alone do not
+# install the agent; this addon does. It must be installed
+# before any pod that relies on Pod Identity starts, so the
+# CSI addons depend on it below.
+resource "aws_eks_addon" "pod_identity_agent" {
+  count                       = var.enable_eks ? 1 : 0
+  cluster_name                = aws_eks_cluster.main[0].name
+  addon_name                  = "eks-pod-identity-agent"
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+
+  depends_on = [aws_eks_node_group.main]
+}
+
 resource "aws_eks_addon" "ebs_csi" {
   count                       = var.enable_eks ? 1 : 0
   cluster_name                = aws_eks_cluster.main[0].name
@@ -261,6 +278,7 @@ resource "aws_eks_addon" "ebs_csi" {
   depends_on = [
     aws_eks_node_group.main,
     aws_eks_pod_identity_association.ebs_csi,
+    aws_eks_addon.pod_identity_agent,
   ]
 }
 
@@ -274,6 +292,7 @@ resource "aws_eks_addon" "efs_csi" {
   depends_on = [
     aws_eks_node_group.main,
     aws_eks_pod_identity_association.efs_csi,
+    aws_eks_addon.pod_identity_agent,
   ]
 }
 
@@ -319,5 +338,6 @@ resource "aws_eks_addon" "cloudwatch_observability" {
   depends_on = [
     aws_eks_node_group.main,
     aws_eks_pod_identity_association.cloudwatch_observability,
+    aws_eks_addon.pod_identity_agent,
   ]
 }

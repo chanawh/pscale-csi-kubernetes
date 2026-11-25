@@ -151,7 +151,7 @@ flag lagged — the taint itself recovered the pod in
 | `helm/` | Values for dell/csi-isilon 2.18.1, kube-prometheus-stack observability values, plus isilon-creds.yaml.example (never commit the filled-in file) |
 | `terraform/` | EKS cluster + node group + EBS/EFS CSI addons + Pod Identity + EFS filesystem + KMS, gated off by `enable_eks = false` |
 | `scripts/` | kind path: setup_kind, install_driver, run_demo, and 4 standalone drills |
-| `scripts/eks/` | EKS path: deploy_eks (apply + addons + manifests + observability), run_eks_demo (timed drills), destroy_eks (PVCs first, then destroy, orphan check) |
+| `scripts/eks/` | EKS path: run_eks_day (one-command driver for the whole day), deploy_eks (apply + addons + manifests + observability), run_eks_demo (timed drills), guard_live_eks / fis_az_gameday / cnpg_failover_eks / dr_region_restore (the four ceiling measurements), destroy_eks (PVCs first, then destroy, orphan check) |
 | `python/tests/` | 40 checks on the manifests, Helm values, Terraform, scripts, monitoring, and the guard, no cluster needed |
 | `guard/` | Node-down guard: stdlib Python, applies the out-of-service taint only when the node is unreachable AND a second source confirms the instance is down AND no maintenance annotation is set; dry-run, JSON-lines audit, auto-removal |
 | `k8s/guard/` | Guard CronJob (every 2 min, in-cluster API client, AWS checker) + RBAC (patch nodes only) + ConfigMap with the script (generated, drift-tested) |
@@ -194,6 +194,12 @@ bash scripts/run_demo.sh
 
 ```sh
 # Requires: aws CLI configured, terraform, kubectl, helm, envsubst
+bash scripts/eks/run_eks_day.sh   # one command: apply, demo, guard, FIS, DR, CNPG, destroy
+```
+
+Manual steps (fallback, one step at a time):
+
+```sh
 bash scripts/eks/deploy_eks.sh    # Terraform apply, addons, manifests, observability
 bash scripts/eks/run_eks_demo.sh  # write row, snapshot, expand, timed node drain, verify
 bash scripts/eks/destroy_eks.sh   # PVCs first, then terraform destroy, orphan check
