@@ -219,7 +219,7 @@ anywhere yet; each has its own doc and evidence file.
    cluster must already exist. Evidence:
    `evidence/dr-region.json` with measured RPO/RTO.
 
-4. **CloudNativePG failover.** `docs/CNPG_COMPARISON.md`
+4. **CloudNativePG failover + WAL archive.** `docs/CNPG_COMPARISON.md`
    (install the operator, then `k8s/cnpg/cluster.yaml`
    with the storage class swapped to `ebs-gp3`, kill a
    node, time the failover against the
@@ -227,7 +227,17 @@ anywhere yet; each has its own doc and evidence file.
    runs `scripts/eks/cnpg_failover_eks.sh` (3 trials,
    terminate the instance, ASG replaces it, evidence
    `evidence/cnpg-failover.json`, same schema as the
-   kind drill).
+   kind drill). The script also wires the WAL archive
+   first (`docs/WAL_ARCHIVE.md`): it installs cert-manager
+   and the Barman Cloud plugin, applies the ObjectStore
+   (bucket from `terraform output -raw cnpg_wal_bucket`),
+   enables WAL archiving on the cluster, takes a base
+   backup, and measures the RPO before the trials and
+   after them (`scripts/drills/rpo_measure.py`, evidence
+   `evidence/rpo-<date>.json`). If the plugin install or
+   the base backup fails, the failover trials still run
+   and the archive is recorded as not measured — the
+   failover number does not depend on it.
 
 Destroy with `bash scripts/eks/destroy_eks.sh` when all
 four are done — it deletes the demo namespace first,

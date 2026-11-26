@@ -56,9 +56,10 @@ prove what survives.
 | Hard kill + out-of-service taint | serving in 198s from kill (~15s from taint) | same evidence file |
 | Guard unit tests | 15/15 pass (full decision matrix, fake client) | `python/tests/test_guard.py` |
 | Guard false-positive test | wired into the drill workflow; not run yet (next manual dispatch) | `scripts/drills/guard_chaos_test.sh` |
-| Guard live taint timing | unmeasured — drill built (`.github/workflows/guard-live-drill.yml`), pending push + manual dispatch | `scripts/drills/guard_live_ci.sh`, `evidence/guard-live.json` |
+| Guard live taint timing | unmeasured — drill FAILED in CI (run 45529757950, 25 Nov 2026); pg_isready readinessProbe fix local (commit 54a7334), pending push + re-dispatch | `scripts/drills/guard_live_ci.sh`, `evidence/guard-live.json` |
 | Guard refusal trials (live node) | unmeasured — same drill, 3 trials on a paused node the guard must refuse | `scripts/drills/guard_live_ci.sh` |
-| CNPG failover vs StatefulSet + guard | unmeasured — drill built (`.github/workflows/cnpg-failover-drill.yml`), pending push + manual dispatch | `docs/CNPG_COMPARISON.md` |
+| CNPG failover vs StatefulSet + guard | unmeasured — CNPG drill FAILED in CI (run 45529763004, 25 Nov 2026); setup-row retry fix local (commit bbec4a0), pending push + re-dispatch; the comparison harness is built (`.github/workflows/ha-comparison-drill.yml`) | `docs/CNPG_COMPARISON.md`, `docs/HA_COMPARISON.md` |
+| WAL archive to S3 (RPO) | unmeasured — Barman Cloud plugin + ObjectStore + base backup built, real-EKS-only (S3 bucket + IAM role gated, `terraform/cnpg_wal.tf`); RPO script measures standby lag + archive lag to `evidence/rpo-<date>.json` | `docs/WAL_ARCHIVE.md`, `scripts/drills/rpo_measure.py` |
 | FIS AZ game day, cross-region DR | unrun — Terraform validated, runbooks written, need EKS | `docs/FIS_AZ_GAMEDAY.md`, `docs/DR_REGION.md` |
 | Burn-rate alerts | 2 multi-window alerts + 2 dashboard panels, validated by tests, never fired live | `monitoring/` |
 
@@ -149,15 +150,17 @@ flag lagged — the taint itself recovered the pod in
 | `k8s/` | PowerScale path: StorageClass x2, VolumeSnapshotClass, PVC, Postgres StatefulSet + Service + Secret, snapshot, restore PVC, clone PVC, test Job |
 | `k8s/eks/` | EKS path: EBS gp3 + EFS StorageClasses, EBS snapshot class, EBS Postgres PVC + StatefulSet, EFS shared PVC, EBS snapshot + restore |
 | `helm/` | Values for dell/csi-isilon 2.18.1, kube-prometheus-stack observability values, plus isilon-creds.yaml.example (never commit the filled-in file) |
-| `terraform/` | EKS cluster + node group + EBS/EFS CSI addons + Pod Identity + EFS filesystem + KMS, gated off by `enable_eks = false` |
+| `terraform/` | EKS cluster + node group + EBS/EFS CSI addons + Pod Identity + EFS filesystem + KMS + CNPG WAL S3 bucket, gated off by `enable_eks = false` |
 | `scripts/` | kind path: setup_kind, install_driver, run_demo, and 4 standalone drills |
 | `scripts/eks/` | EKS path: run_eks_day (one-command driver for the whole day), deploy_eks (apply + addons + manifests + observability), run_eks_demo (timed drills), guard_live_eks / fis_az_gameday / cnpg_failover_eks / dr_region_restore (the four ceiling measurements), destroy_eks (PVCs first, then destroy, orphan check) |
-| `python/tests/` | 40 checks on the manifests, Helm values, Terraform, scripts, monitoring, and the guard, no cluster needed |
+| `python/tests/` | 74 checks on the manifests, Helm values, Terraform, scripts, monitoring, the guard, the WAL archive, and the HA comparison, no cluster needed |
 | `guard/` | Node-down guard: stdlib Python, applies the out-of-service taint only when the node is unreachable AND a second source confirms the instance is down AND no maintenance annotation is set; dry-run, JSON-lines audit, auto-removal |
 | `k8s/guard/` | Guard CronJob (every 2 min, in-cluster API client, AWS checker) + RBAC (patch nodes only) + ConfigMap with the script (generated, drift-tested) |
-| `k8s/cnpg/` | CloudNativePG 2-replica Cluster manifest + bootstrap secret for the HA comparison (kind + NFS first; EKS swaps the class to ebs-gp3) |
+| `k8s/cnpg/` | CloudNativePG 2-replica Cluster manifest + bootstrap secret for the HA comparison (kind + NFS first; EKS swaps the class to ebs-gp3) + ObjectStore + Backup for the WAL archive (EKS-only) |
 | `terraform/fis/` | FIS AZ-loss experiment template (SSM Resilience Hub document) + DIY JSON alternative, validated, never applied |
 | `monitoring/` | Grafana dashboard (10 panels) + PrometheusRule (7 alerts, incl. 2 multi-window burn-rate alerts) as code, validated in CI, loaded on the EKS run |
+| `docs/WAL_ARCHIVE.md` | WAL archive to S3 via the Barman Cloud plugin, RPO definition and measurement (EKS-only) |
+| `docs/HA_COMPARISON.md` | The measured comparison: CNPG HA vs single replica, the three arms, how to run it (CI dispatch) |
 | `docs/GUARD_DESIGN.md` | Guard decision record: why taint, why not force-delete, the three conditions, what is still unmeasured |
 | `docs/MEDIK8S_COMPARISON.md` | Guard vs medik8s Self Node Remediation vs Machine Deletion Remediation |
 | `docs/CNPG_COMPARISON.md` | StatefulSet + guard vs CloudNativePG, with the failover runbook |
@@ -228,9 +231,9 @@ same as on PowerScale.
 
 ## Verified live
 
-- Python tests: 40/40 pass (9 PowerScale + 8 EKS upgrade + 2 monitoring + 1 tolerations + 15 guard + 5 ceiling)
+- Python tests: 74/74 pass (9 PowerScale + 8 EKS upgrade + 2 monitoring + 1 tolerations + 15 guard + 5 ceiling + 17 RPO + 9 HA comparison + 8 WAL/HA manifest tests)
 - Terraform fmt and validate: clean (EKS, addons, Pod Identity, EFS, KMS; FIS module)
 - Helm template, dell/csi-isilon 2.18.1: renders 18 objects, driver name `csi-isilon.dellemc.com` present; kube-prometheus-stack with `helm/observability-values.yaml`: renders 113 objects
 - Scripts: `bash -n` clean, including `scripts/eks/` and `scripts/drills/guard_chaos_test.sh`
 - Guard: unit tests 15/15 + live run against fake kubectl/docker (dry-run would-taint, live mode issued exactly the taint + marker calls); false-positive chaos test wired into the drill workflow, not run yet
-- Not run live here: kind (no Docker in this VM), the driver installs, Postgres, the drills, the guard's live taint timing, CNPG failover, FIS, DR, or any EKS apply (no AWS account in this VM). Those run on your machine (kind + OneFS Simulator), in CI on manual dispatch (drill workflow), and on your AWS account for one day (EKS). In CI the manifests are applied dry-run against a real kind API server.
+- Not run live here: kind (no Docker in this VM), the driver installs, Postgres, the drills, the guard's live taint timing, CNPG failover, the HA comparison, the WAL archive, FIS, DR, or any EKS apply (no AWS account in this VM). Those run on your machine (kind + OneFS Simulator), in CI on manual dispatch (drill workflow), and on your AWS account for one day (EKS). In CI the manifests are applied dry-run against a real kind API server.

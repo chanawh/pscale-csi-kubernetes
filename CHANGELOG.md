@@ -1,5 +1,63 @@
 # Changelog
 
+## v1.2.4, 2026-11-26
+
+The two unbuilt pieces of the optimal design are built
+(written, not run — kind cannot run in the build VM,
+and the S3 part needs real AWS):
+
+- **WAL archive to S3 (RPO).** `terraform/cnpg_wal.tf`
+  (S3 bucket + KMS key + IAM role for CNPG via Pod
+  Identity, gated `enable_eks` off by default),
+  `k8s/cnpg/objectstore.yaml` (Barman Cloud plugin
+  ObjectStore, `s3Credentials.inheritFromIAMRole: true`)
+  + `k8s/cnpg/backup.yaml` (base backup, method plugin),
+  `scripts/drills/rpo_measure.py` (stdlib: standby
+  replay lag + archive lag, in seconds and WAL bytes,
+  to `evidence/rpo-<date>.json`; "not measured" with a
+  reason when the cluster is down or the archive is not
+  configured), `docs/WAL_ARCHIVE.md`. The EKS CNPG
+  script installs cert-manager + the Barman plugin,
+  applies the ObjectStore, enables archiving, takes a
+  base backup, and measures the RPO at baseline and
+  final. The kind CNPG drill measures the failover RPO
+  only (no archive on kind). Tests: 17 RPO + 6 WAL
+  manifest tests.
+- **CNPG-vs-single-replica comparison.** `scripts/drills/ha_compare.py`
+  (stdlib: builds the table from the drill evidence —
+  CNPG median, single-replica manual-taint, guard
+  median + refusals, RPO — and names the fastest arm;
+  a missing arm is "not measured", never invented),
+  `scripts/drills/cnpg_compare_ci.sh` (runs the CNPG
+  drill, the node-failure drill, and — with `--with-guard`
+  only — the guard-live drill, then writes
+  `evidence/ha-comparison-<date>.json` on EXIT; `--offline`
+  rebuilds the table from the evidence already in
+  `evidence/`), `.github/workflows/ha-comparison-drill.yml`
+  (manual dispatch, `with_guard` input, default false),
+  `docs/HA_COMPARISON.md`, 9 unit tests in
+  `python/tests/test_ha_compare.py`. Verified in the VM
+  by an `--offline` dry-run against sample evidence
+  (full table) and against the real node-failure
+  evidence alone (CNPG + guard + RPO recorded as not
+  measured); the sample fixtures were deleted, nothing
+  invented was committed. No comparison number exists
+  yet — the workflow needs a push and a dispatch.
+
+Also in this release (local since v1.2.3, not yet
+pushed): the EKS one-day driver (`scripts/eks/run_eks_day.sh`
++ per-item scripts, commit cb3da1a; fixes the missing Pod
+Identity agent addon, the guard CronJob's missing AWS
+CLI + IAM role, deploy_eks.sh not passing cluster_name,
+and the EFS leftover check), the CNPG setup-row retry
+(commit bbec4a0 — the CNPG drill failed in CI, run
+45529763004; the retry is the most likely fix, not a
+confirmed root cause), and the pg_isready readinessProbe
+(commit 54a7334 — the guard-live drill failed in CI, run
+45529757950; the probe fixes the post-taint race the
+step timings point to, also not log-confirmed). Both
+re-dispatches need the push first. Tests 74/74.
+
 ## v1.2.3, 2026-11-24
 
 PowerScale-path drill upgraded to the three cases.

@@ -114,12 +114,27 @@ The drill exists: `scripts/drills/cnpg_failover_ci.sh`
 manual dispatch) runs 3 failover trials on kind + NFS,
 records kill to new-primary Ready and to serving per
 trial, and writes the median to
-`evidence/cnpg-failover.json`. It has not run yet — it
-needs a push and a manual dispatch. The number it
-produces is the kind-scoped CNPG failover time; the
-EKS number still needs the one-day EKS run. No CNPG
-number is quoted until the drill has run and the
-evidence is committed. The StatefulSet numbers it
-would be compared against are measured (drill run
-45339015253: drain serving 5s, hard kill + taint
-serving 198s from kill).
+`evidence/cnpg-failover.json`. It FAILED on its first
+dispatch (run 45529763004, 25 Nov 2026; the error is
+only in the run logs — no evidence artifact was
+written). The most likely cause is a race in the setup:
+the test row is written with a single psql attempt, so
+if the read-write endpoint lags the cluster reporting
+Ready, that one attempt fails and the drill dies before
+trial 1. The fix is local (commit bbec4a0: the setup row
+write retries up to 5 times, 15s apart); it needs a push
+and a re-dispatch. No CNPG number is quoted until the
+drill has run and the evidence is committed. The
+StatefulSet numbers it would be compared against are
+measured (drill run 45339015253: drain serving 5s, hard
+kill + taint serving 198s from kill).
+
+The comparison itself is now built: `docs/HA_COMPARISON.md`
+(the measured version — CNPG HA vs single replica with
+the manual taint vs single replica with the guard, plus
+the RPO, as one table from the drill evidence), the
+harness `scripts/drills/cnpg_compare_ci.sh`, and the
+workflow `.github/workflows/ha-comparison-drill.yml`.
+The RPO alongside is `docs/WAL_ARCHIVE.md` (Barman Cloud
+plugin, archive to S3 on EKS; on kind the archive is not
+configured, so only the failover RPO is measured).
