@@ -47,6 +47,23 @@ spec:
           envFrom:
             - secretRef:
                 name: postgres-secret
+          # Ready means accepting connections, not just
+          # "container started": the drill scripts wait for
+          # pod Ready and then run a psql test job at once.
+          # Without this probe the job can hit a pod whose
+          # server is still starting and fail on
+          # connection-refused — the guard-live drill's
+          # trial-1 failure (run 45529757950, drill step
+          # 7m55s: setup ~2min, guard taint ~240s after the
+          # kill, then the post-taint test job failed).
+          # pg_isready is the postgres-native check.
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
           volumeMounts:
             - name: postgres-data
               mountPath: /var/lib/postgresql/data
