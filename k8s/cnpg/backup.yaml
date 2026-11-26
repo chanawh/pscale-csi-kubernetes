@@ -1,0 +1,25 @@
+# First base backup for the CNPG cluster, through the
+# Barman Cloud Plugin. EKS ONLY — applied by
+# scripts/eks/cnpg_failover_eks.sh after the cluster is
+# Ready with the plugin entry, so point-in-time recovery
+# actually has a starting point (WAL archiving alone,
+# without a base backup, cannot restore anything).
+# method: plugin + pluginConfiguration naming the plugin
+# is the plugin-era form; the in-tree method
+# (barmanObjectStore) is deprecated since CNPG 1.26.
+# The EKS script waits for this Backup to reach Completed
+# before the failover trials; if it does not complete,
+# the script warns and continues — the failover timing
+# does not depend on the backup, and the RPO script
+# records the archive state as measured.
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  name: postgres-cnpg-base-1
+  namespace: csi-demo
+spec:
+  method: plugin
+  cluster:
+    name: postgres-cnpg
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io

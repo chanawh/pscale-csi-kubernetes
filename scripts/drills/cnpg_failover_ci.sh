@@ -189,6 +189,11 @@ PGPASSWORD=$($KUBECTL -n "$NS" get secret postgres-cnpg-secret -o jsonpath='{.da
 cnpg_write_row
 echo "setup: cluster Ready, row written"
 $KUBECTL -n "$NS" get pods -l cnpg.io/cluster="$CLUSTER" -o wide
+# RPO baseline (best-effort): the standby replay lag before
+# the trials. The archive is not configured on kind (no S3,
+# no plugin), so the RPO script records archive: not
+# configured and only the failover RPO is measured.
+python3 "$ROOT/scripts/drills/rpo_measure.py" --evidence "$ROOT/evidence/rpo-$(date +%F).json" || echo "RPO measurement not available (non-fatal)" >&2
 
 T1_READY=""; T1_SERVING=""; T1_PRIMARY=""; T1_OLD=""; T1_NODE=""; T1_ROW=""; T1_FAILED=""
 T2_READY=""; T2_SERVING=""; T2_PRIMARY=""; T2_OLD=""; T2_NODE=""; T2_ROW=""; T2_FAILED=""
@@ -264,6 +269,8 @@ for TRIAL in 1 2 3; do
   fi
   eval "T${TRIAL}_FAILED=$FAILED"
 done
+
+python3 "$ROOT/scripts/drills/rpo_measure.py" --evidence "$ROOT/evidence/rpo-$(date +%F).json" || echo "RPO measurement not available (non-fatal)" >&2
 
 COMPLETED="true"
 # Evidence is written by the EXIT trap.

@@ -39,6 +39,21 @@
 # (it shares the nodes); it recovers independently via the
 # guard, and it is not measured here.
 #
+# WAL archive (best-effort, EKS only): cert-manager + the
+# Barman Cloud Plugin + the ObjectStore
+# (k8s/cnpg/objectstore.yaml, bucket from `terraform output
+# -raw cnpg_wal_bucket`), then the Cluster gets the plugins
+# entry. If any of it fails, the drill continues without
+# archiving and the RPO script records the archive as not
+# configured — the failover timing does not depend on the
+# backup. Requires envsubst (for the bucket substitution)
+# and terraform (for the bucket output); both are already
+# required by scripts/eks/deploy_eks.sh.
+# A base backup is taken after the cluster is Ready with
+# the plugin, so point-in-time recovery has a starting
+# point; the RPO is measured before the trials (baseline)
+# and after them (final) with scripts/drills/rpo_measure.py.
+#
 # Run by scripts/eks/run_eks_day.sh on the one-day EKS run.
 # Manual dispatch only; never run against kind.
 set -euo pipefail
@@ -49,6 +64,8 @@ REGION="${AWS_REGION:-us-west-2}"
 CLUSTER_NAME_EKS="${CLUSTER_NAME:-pscale-csi}"
 CLUSTER=postgres-cnpg
 CNPG_VERSION=1.30.1
+BARMAN_PLUGIN_VERSION=0.15.1
+CERT_MANAGER_VERSION=1.21.3
 BASELINE_SERVING=198
 
 KUBECTL="${KUBECTL:-kubectl}"
@@ -99,6 +116,62 @@ cnpg_write_row() {
 # True when the row reads back through the rw service.
 cnpg_read_row() {
   psql_rw "SELECT note FROM csi_proof WHERE id=1;" 2>/dev/null | grep -q csi-powerscale-proof
+}
+
+# Install cert-manager + the Barman Cloud Plugin and apply
+# the ObjectStore (k8s/cnpg/objectstore.yaml, bucket from
+# the Terraform output). Returns 1 on any failure; the
+# caller treats that as "continue without archiving".
+# Each step has an explicit || return 1: this function is
+# called in an if-condition, where set -e is suppressed,
+# so a bare failing command would not stop it.
+install_wal_plugin() {
+  echo "WAL archive: installing cert-manager $CERT_MANAGER_VERSION"
+  $KUBECTL apply -f "https://github.com/cert-manager/cert-manager/releases/download/v${CERT_MANAGER_VERSION}/cert-manager.yaml" >/dev/null || return 1
+  $KUBECTL -n cert-manager rollout status deploy/cert-manager-webhook --timeout=300s >/dev/null || return 1
+  echo "WAL archive: installing Barman Cloud Plugin $BARMAN_PLUGIN_VERSION"
+  $KUBECTL apply -f "https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/v${BARMAN_PLUGIN_VERSION}/manifest.yaml" >/dev/null || return 1
+  $KUBECTL -n cnpg-system rollout status deploy/plugin-barman-cloud --timeout=300s >/dev/null || return 1
+  local bucket
+  bucket="$(cd "$ROOT/terraform" && terraform output -raw cnpg_wal_bucket 2>/dev/null)" || return 1
+  if [ -z "$bucket" ]; then
+    echo "WAL archive: terraform output cnpg_wal_bucket is empty" >&2
+    return 1
+  fi
+  echo "WAL archive: ObjectStore to s3://$bucket/postgres-cnpg"
+  CNPG_WAL_BUCKET="$bucket" envsubst < "$ROOT/k8s/cnpg/objectstore.yaml" | $KUBECTL apply -f - >/dev/null || return 1
+  return 0
+}
+
+# Point the Cluster at the ObjectStore (the plugins entry
+# the checked-in cluster.yaml deliberately omits, so the
+# kind run needs no plugin). The operator restarts the
+# instances once when the plugins change; the caller waits
+# for Ready afterwards.
+enable_wal_archive() {
+  $KUBECTL -n "$NS" patch cluster "$CLUSTER" --type=merge -p '{"spec":{"plugins":[{"name":"barman-cloud.cloudnative-pg.io","isWALArchiver":true,"parameters":{"barmanObjectName":"postgres-cnpg-wal"}}]}}' >/dev/null
+}
+
+# First base backup through the plugin (k8s/cnpg/backup.yaml).
+# Returns 1 when the Backup does not reach Completed in
+# 600s; the caller treats that as a warning, not a failure.
+take_base_backup() {
+  $KUBECTL apply -f "$ROOT/k8s/cnpg/backup.yaml" >/dev/null || return 1
+  local waited=0
+  while [ "$waited" -lt 600 ]; do
+    local phase
+    phase=$($KUBECTL -n "$NS" get backup postgres-cnpg-base-1 -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+    [ "$phase" = "completed" ] && return 0
+    [ "$phase" = "failed" ] && return 1
+    sleep 10; waited=$((waited + 10))
+  done
+  return 1
+}
+
+# RPO measurement (best-effort): the archive + standby lag.
+# Writes evidence/rpo-<date>.json; never fails the drill.
+measure_rpo() {
+  python3 "$ROOT/scripts/drills/rpo_measure.py" --evidence "$ROOT/evidence/rpo-$(date +%F).json" || echo "RPO measurement not available (non-fatal)" >&2
 }
 
 # Evidence is written on EXIT, not just at the end: a trial
@@ -169,16 +242,37 @@ echo "== setup: CNPG operator + 2-replica cluster on EBS =="
 $KUBECTL create namespace "$NS" --dry-run=client -o yaml | $KUBECTL apply -f - >/dev/null
 $KUBECTL apply --server-side -f "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v${CNPG_VERSION}/releases/cnpg-${CNPG_VERSION}.yaml" >/dev/null
 $KUBECTL wait --for=condition=Available deployment/cnpg-controller-manager -n cnpg-system --timeout=300s >/dev/null
+# WAL archive (best-effort): if any of it fails, the drill
+# continues without archiving and the RPO script records
+# the archive as not configured.
+WAL_ARCHIVE="disabled"
+if install_wal_plugin; then
+  WAL_ARCHIVE="enabled"
+  echo "WAL archive: plugin + ObjectStore installed"
+else
+  echo "WARNING: WAL archive setup failed, continuing without archiving" >&2
+fi
 $KUBECTL apply -f "$ROOT/k8s/cnpg/secret.yaml" >/dev/null
 # The checked-in cluster manifest says storageClass nfs (the
 # kind run). EKS swaps it to ebs-gp3 at apply time so there is
 # no second manifest to drift.
 sed 's/storageClass: nfs/storageClass: ebs-gp3/' "$ROOT/k8s/cnpg/cluster.yaml" | $KUBECTL apply -f - >/dev/null
 wait_cluster_ready 600
+if [ "$WAL_ARCHIVE" = "enabled" ]; then
+  enable_wal_archive
+  wait_cluster_ready 600
+  echo "WAL archive: cluster patched with the plugin entry"
+  if take_base_backup; then
+    echo "WAL archive: base backup completed"
+  else
+    echo "WARNING: base backup did not complete in 600s" >&2
+  fi
+fi
 PGPASSWORD=$($KUBECTL -n "$NS" get secret postgres-cnpg-secret -o jsonpath='{.data.password}' | base64 -d)
 cnpg_write_row
 echo "setup: cluster Ready, row written"
 $KUBECTL -n "$NS" get pods -l cnpg.io/cluster="$CLUSTER" -o wide
+measure_rpo
 
 T1_READY=""; T1_SERVING=""; T1_PRIMARY=""; T1_OLD=""; T1_NODE=""; T1_INSTANCE=""; T1_ROW=""; T1_FAILED=""
 T2_READY=""; T2_SERVING=""; T2_PRIMARY=""; T2_OLD=""; T2_NODE=""; T2_INSTANCE=""; T2_ROW=""; T2_FAILED=""
@@ -264,5 +358,6 @@ for TRIAL in 1 2 3; do
   eval "T${TRIAL}_FAILED=$FAILED"
 done
 
+measure_rpo
 COMPLETED="true"
 # Evidence is written by the EXIT trap.

@@ -313,5 +313,109 @@ class TestCeilingV120(unittest.TestCase):
         self.assertIn("guard_chaos_test.sh", drill)
 
 
+class TestWALArchive(unittest.TestCase):
+    """WAL archive to S3 (docs/WAL_ARCHIVE.md): the Barman Cloud
+    Plugin ObjectStore, the base Backup, the Terraform bucket +
+    role, and the EKS wiring. Everything is validated without
+    a cluster or an AWS account; the RPO numbers are pending
+    by design (the kind drill and the EKS day have not run).
+    """
+
+    def test_objectstore_manifest(self):
+        docs = load_all(ROOT / "k8s" / "cnpg" / "objectstore.yaml")
+        store = [d for d in docs if d["kind"] == "ObjectStore"][0]
+        self.assertEqual(store["apiVersion"], "barmancloud.cnpg.io/v1")
+        self.assertEqual(store["metadata"]["name"], "postgres-cnpg-wal")
+        self.assertEqual(store["metadata"]["namespace"], "csi-demo")
+        config = store["spec"]["configuration"]
+        # Bucket is a placeholder: the EKS script substitutes it
+        # from the Terraform output, never hardcoded.
+        self.assertIn("${CNPG_WAL_BUCKET}", config["destinationPath"])
+        self.assertTrue(
+            config["destinationPath"].startswith("s3://"))
+        self.assertTrue(
+            config["destinationPath"].endswith("/postgres-cnpg"))
+        # Pod Identity auth, not access keys: no secret is
+        # referenced anywhere in the ObjectStore.
+        self.assertTrue(
+            config["s3Credentials"]["inheritFromIAMRole"])
+        self.assertNotIn("accessKeyId", config["s3Credentials"])
+        self.assertEqual(config["wal"]["compression"], "gzip")
+        self.assertEqual(config["data"]["compression"], "gzip")
+        self.assertEqual(store["spec"]["retentionPolicy"], "30d")
+
+    def test_backup_manifest(self):
+        docs = load_all(ROOT / "k8s" / "cnpg" / "backup.yaml")
+        backup = [d for d in docs if d["kind"] == "Backup"][0]
+        self.assertEqual(backup["apiVersion"], "postgresql.cnpg.io/v1")
+        self.assertEqual(backup["metadata"]["namespace"], "csi-demo")
+        # Plugin-era form: method plugin, naming the plugin.
+        # The in-tree method (barmanObjectStore) is deprecated.
+        self.assertEqual(backup["spec"]["method"], "plugin")
+        self.assertEqual(backup["spec"]["cluster"]["name"],
+                         "postgres-cnpg")
+        self.assertEqual(
+            backup["spec"]["pluginConfiguration"]["name"],
+            "barman-cloud.cloudnative-pg.io")
+
+    def test_cluster_manifest_has_no_plugins_entry(self):
+        # The checked-in Cluster must not point at the plugin:
+        # the kind run has no plugin installed, and a Cluster
+        # referencing a missing plugin would fail. The EKS
+        # script patches the entry in.
+        docs = load_all(ROOT / "k8s" / "cnpg" / "cluster.yaml")
+        cluster = [d for d in docs if d["kind"] == "Cluster"][0]
+        self.assertNotIn("plugins", cluster["spec"])
+        self.assertNotIn("backup", cluster["spec"])
+
+    def test_terraform_wal_bucket_and_role(self):
+        wal = (ROOT / "terraform" / "cnpg_wal.tf").read_text()
+        for resource in (
+                'resource "aws_s3_bucket" "cnpg_wal"',
+                'resource "aws_s3_bucket_versioning" "cnpg_wal"',
+                'resource "aws_kms_key" "cnpg_wal"',
+                'resource "aws_s3_bucket_server_side_encryption_configuration"'
+                ' "cnpg_wal"',
+                'resource "aws_s3_bucket_lifecycle_configuration" "cnpg_wal"',
+                'resource "aws_iam_role" "cnpg_wal"',
+                'resource "aws_eks_pod_identity_association" "cnpg_wal"'):
+            self.assertIn(resource, wal, resource)
+        # Least privilege: the role writes only under the
+        # cluster prefix, and only the WAL key.
+        self.assertIn("s3:PutObject", wal)
+        self.assertIn("s3:DeleteObject", wal)
+        self.assertIn("postgres-cnpg/*", wal)
+        # Pod Identity binds the service account the operator
+        # creates (same name as the cluster), not a made-up one.
+        self.assertIn('"postgres-cnpg"', wal)
+        self.assertIn('"csi-demo"', wal)
+        # Gated by enable_eks: off by default, like the rest
+        # of the EKS path.
+        self.assertIn("var.enable_eks", wal)
+        outputs = (ROOT / "terraform" / "outputs.tf").read_text()
+        self.assertIn('"cnpg_wal_bucket"', outputs)
+
+    def test_eks_cnpg_script_wires_the_archive(self):
+        script = (ROOT / "scripts" / "eks" / "cnpg_failover_eks.sh").read_text()
+        for fragment in (
+                "plugin-barman-cloud",
+                "cert-manager",
+                "objectstore.yaml",
+                "cnpg_wal_bucket",
+                "barmanObjectName",
+                "backup.yaml",
+                "rpo_measure.py"):
+            self.assertIn(fragment, script, fragment)
+        # The archive setup is best-effort: a failure warns
+        # and the drill continues without archiving.
+        self.assertIn("continuing without archiving", script)
+
+    def test_kind_cnpg_drill_measures_rpo(self):
+        script = (ROOT / "scripts" / "drills" / "cnpg_failover_ci.sh").read_text()
+        self.assertIn("rpo_measure.py", script)
+        # Non-fatal: the archive is not configured on kind.
+        self.assertIn("non-fatal", script)
+
+
 if __name__ == "__main__":
     unittest.main()

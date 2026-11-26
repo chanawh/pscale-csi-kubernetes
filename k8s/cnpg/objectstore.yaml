@@ -1,0 +1,50 @@
+# Barman Cloud Plugin ObjectStore for the CNPG cluster
+# (k8s/cnpg/cluster.yaml). EKS ONLY — never applied on kind.
+#
+# Why a separate ObjectStore instead of the in-tree
+# spec.backup.barmanObjectStore: the in-tree Barman Cloud
+# integration is deprecated since CNPG 1.26 and removed in
+# 1.31/1.32 (the repo pins 1.30.1). New clusters back up
+# through the Barman Cloud Plugin (CNPG-I): this ObjectStore
+# holds the bucket, credentials, compression, and retention,
+# and the Cluster points at it with a plugins entry
+# (scripts/eks/cnpg_failover_eks.sh patches that entry in
+# on EKS; the checked-in cluster.yaml has no plugins entry,
+# so the kind run is untouched and needs no plugin).
+#
+# Auth is Pod Identity, not access keys:
+# s3Credentials.inheritFromIAMRole tells barman-cloud to
+# use the IAM role attached to the pod (the AWS SDK default
+# credential chain). That role is created by
+# terraform/cnpg_wal.tf and bound to the service account
+# the operator creates for the cluster (postgres-cnpg,
+# namespace csi-demo). No access keys are created, stored,
+# or committed anywhere.
+#
+# ${CNPG_WAL_BUCKET} is substituted by
+# scripts/eks/cnpg_failover_eks.sh from `terraform output
+# -raw cnpg_wal_bucket` (the bucket name is account-scoped,
+# so it is never hardcoded here). The destination prefix is
+# the cluster name, matching the IAM policy's object scope
+# in terraform/cnpg_wal.tf. WAL lands under wals/, base
+# backups as tarballs under base/. retentionPolicy 30d is
+# the recovery window Barman enforces (it deletes older
+# backups); the bucket lifecycle rule in Terraform is only
+# a backstop for noncurrent versions.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: postgres-cnpg-wal
+  namespace: csi-demo
+spec:
+  configuration:
+    destinationPath: s3://${CNPG_WAL_BUCKET}/postgres-cnpg
+    s3Credentials:
+      inheritFromIAMRole: true
+    wal:
+      compression: gzip
+      maxParallel: 8
+    data:
+      compression: gzip
+      jobs: 2
+  retentionPolicy: 30d

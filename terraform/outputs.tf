@@ -24,3 +24,16 @@ output "efs_file_system_id" {
 output "onefs_host" {
   value = var.onefs_host
 }
+
+output "cnpg_wal_bucket" {
+  description = "S3 bucket for the CNPG WAL archive (k8s/cnpg/objectstore.yaml). scripts/eks/cnpg_failover_eks.sh reads this with terraform output and substitutes it into the ObjectStore. Empty when EKS is off."
+  value       = var.enable_eks ? aws_s3_bucket.cnpg_wal[0].id : ""
+}
+
+output "cnpg_wal_bucket_arn" {
+  value = var.enable_eks ? aws_s3_bucket.cnpg_wal[0].arn : ""
+}
+
+output "cnpg_wal_kms_key_id" {
+  value = var.enable_eks ? aws_kms_key.cnpg_wal[0].id : ""
+}
