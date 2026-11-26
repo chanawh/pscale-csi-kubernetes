@@ -92,8 +92,22 @@ psql_rw() {
 }
 
 # Write the same row the StatefulSet drill uses.
+# Retrying: the rw service endpoint can lag the cluster
+# reporting Ready, so a single psql attempt can fail on
+# a healthy cluster. Retry 5 times, 15s apart; if all
+# fail, return 1 and the setup exits (set -e) with the
+# error recorded in the evidence.
 cnpg_write_row() {
-  psql_rw "CREATE TABLE IF NOT EXISTS csi_proof (id INT PRIMARY KEY, note TEXT); INSERT INTO csi_proof VALUES (1, 'csi-powerscale-proof') ON CONFLICT (id) DO NOTHING; SELECT * FROM csi_proof;"
+  local sql="CREATE TABLE IF NOT EXISTS csi_proof (id INT PRIMARY KEY, note TEXT); INSERT INTO csi_proof VALUES (1, 'csi-powerscale-proof') ON CONFLICT (id) DO NOTHING; SELECT * FROM csi_proof;"
+  local attempt=1
+  while [ "$attempt" -le 5 ]; do
+    if psql_rw "$sql"; then return 0; fi
+    echo "cnpg_write_row: attempt $attempt failed, retrying in 15s" >&2
+    sleep 15
+    attempt=$((attempt + 1))
+  done
+  echo "cnpg_write_row: row write failed after 5 attempts" >&2
+  return 1
 }
 
 # True when the row reads back through the rw service.
