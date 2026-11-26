@@ -35,12 +35,25 @@
 # (barman-cloud uploads large base backups multipart).
 
 resource "aws_s3_bucket" "cnpg_wal" {
+  # checkov:skip=CKV_AWS_144:One-day lab bucket, destroyed with the run; cross-region replication would double the bill for recreatable WAL data.
+  # checkov:skip=CKV2_AWS_62:One-day lab bucket; nothing consumes S3 event notifications.
+  # checkov:skip=CKV_AWS_18:One-day lab bucket; access logging would need a second log-delivery bucket for a bucket destroyed the same day.
   count  = var.enable_eks ? 1 : 0
   bucket = "${var.cluster_name}-cnpg-wal-${data.aws_caller_identity.current.account_id}"
 
   tags = {
     Name = "${var.cluster_name} CNPG WAL archive (lab, one-day run)"
   }
+}
+
+resource "aws_s3_bucket_public_access_block" "cnpg_wal" {
+  count  = var.enable_eks ? 1 : 0
+  bucket = aws_s3_bucket.cnpg_wal[0].id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
 resource "aws_s3_bucket_versioning" "cnpg_wal" {
