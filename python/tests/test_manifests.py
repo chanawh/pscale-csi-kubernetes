@@ -417,5 +417,46 @@ class TestWALArchive(unittest.TestCase):
         self.assertIn("non-fatal", script)
 
 
+class TestHAComparison(unittest.TestCase):
+    """CNPG-vs-single-replica comparison (docs/HA_COMPARISON.md):
+    the harness, the comparison module, and the workflow. The
+    numbers are pending by design (the workflow has not run);
+    the tests assert the harness builds the table from
+    whatever evidence exists, and never invents an arm."""
+
+    def test_harness_runs_both_arms(self):
+        script = (ROOT / "scripts" / "drills" / "cnpg_compare_ci.sh").read_text()
+        for fragment in (
+                "cnpg_failover_ci.sh",
+                "node_failure_ci.sh",
+                "guard_live_ci.sh",
+                "ha_compare.py",
+                "--with-guard",
+                "--offline"):
+            self.assertIn(fragment, script, fragment)
+        # A failed arm is recorded, not hidden, and the
+        # comparison still builds from the arms that ran.
+        self.assertIn("recorded, continuing", script)
+        # Evidence is written on EXIT, like the other drills.
+        self.assertIn("trap write_comparison EXIT", script)
+
+    def test_workflow(self):
+        workflow = (ROOT / ".github" / "workflows"
+                    / "ha-comparison-drill.yml").read_text()
+        for fragment in (
+                "ha-comparison-drill",
+                "with_guard",
+                "cnpg_compare_ci.sh",
+                "ha-comparison-*.json",
+                "cnpg-failover.json",
+                "node-failure-drill.json"):
+            self.assertIn(fragment, workflow, fragment)
+        # The guard arm is off by default.
+        self.assertIn("default: false", workflow)
+        docs = (ROOT / "docs" / "HA_COMPARISON.md").read_text()
+        self.assertIn("measured comparison", docs)
+        self.assertIn("not measured", docs)
+
+
 if __name__ == "__main__":
     unittest.main()

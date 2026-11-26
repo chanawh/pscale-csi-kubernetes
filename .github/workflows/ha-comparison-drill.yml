@@ -1,0 +1,93 @@
+# CNPG-vs-single-replica comparison on kind + in-cluster NFS.
+# Manual run only: the two drill arms take ~30-40 minutes
+# between them (the CNPG failover drill plus the
+# node-failure drill), and the guard arm adds ~40-45
+# minutes on top. Trigger from the Actions tab. The public
+# run log plus the evidence artifacts are the verifiable
+# evidence for the measured trade-off: operator-managed HA
+# Postgres (CNPG, 2 replicas) against the single-replica
+# StatefulSet, on the same kill, the same row, the same
+# kind cluster.
+#
+# The guard arm is off by default (with_guard: false):
+# the comparison then reads evidence/guard-live.json if a
+# previous guard-live dispatch wrote it, and records the
+# guard arm as "not measured" otherwise. To measure the
+# guard arm, either dispatch this workflow with
+# with_guard: true, or dispatch the guard-live drill
+# first and then re-run this workflow — the comparison
+# rebuilds from the evidence already in the repo.
+#
+# No expected result is stated: which arm is fastest is
+# genuinely unmeasured until this runs. The guard arm is
+# expected to be slowest (its 180s threshold plus the
+# 2-minute cadence dominate); that is the point — the
+# guard's value is automation plus triple confirmation,
+# not speed.
+#
+# Scope: kind + NFS only. This does NOT exercise the
+# PowerScale CSI driver or OneFS. The EKS comparison is
+# the same table filled from the one-day EKS run's
+# evidence (evidence/cnpg-failover.json and
+# evidence/guard-live.json, EKS-scoped); see
+# docs/HA_COMPARISON.md.
+name: ha-comparison-drill
+
+on:
+  workflow_dispatch:
+    inputs:
+      with_guard:
+        description: "Run the guard-live drill inline (adds ~40-45 min)"
+        type: boolean
+        default: false
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install tools
+        run: |
+          curl -sL -o /tmp/helm.tar.gz https://get.helm.sh/helm-v3.16.2-linux-amd64.tar.gz
+          tar -xzf /tmp/helm.tar.gz -C /tmp
+          sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
+      - name: Kind cluster (1 control-plane + 2 workers)
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: pscale-csi
+          config: scripts/kind-config.yaml
+      - name: Install in-cluster NFS provisioner
+        # nfs-server-provisioner runs an NFS server inside
+        # the cluster and provisions the "nfs" StorageClass
+        # the drill PVCs use. NFS, not kind's default
+        # local-path class: a local-path volume cannot move
+        # to another node, so a rescheduled pod could never
+        # reattach. Lab-only: the export is an emptyDir on
+        # the provisioner pod.
+        run: |
+          helm repo add nfs-ganesha https://kubernetes-sigs.github.io/nfs-ganesha-server-and-external-provisioner/
+          helm repo update
+          helm install nfs-provisioner nfs-ganesha/nfs-server-provisioner \
+            --namespace nfs-provisioner --create-namespace
+          kubectl wait --for=condition=ready pod -l app=nfs-server-provisioner -n nfs-provisioner --timeout=300s
+          kubectl get storageclass nfs
+      - name: Run the HA comparison
+        run: |
+          if [ "${{ inputs.with_guard }}" = "true" ]; then
+            bash scripts/drills/cnpg_compare_ci.sh --with-guard
+          else
+            bash scripts/drills/cnpg_compare_ci.sh
+          fi
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ha-comparison-drill
+          path: |
+            evidence/ha-comparison-*.json
+            evidence/cnpg-failover.json
+            evidence/node-failure-drill.json
+            evidence/rpo-*.json
